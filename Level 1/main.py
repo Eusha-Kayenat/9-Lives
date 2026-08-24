@@ -47,7 +47,7 @@ WINDOW_TITLE = b"9 Lives - Level 1: Connected Backrooms Maze Arena ('tung tung t
 # Player & Physics State
 # -----------------------------------------------------------------------------
 player_pos = [0.0, 1.0, 5.0]     # X, Y, Z coordinates
-player_yaw = 0.0                  # Facing angle in degrees (0 = along +Z)
+player_yaw = 0.0                  # Character facing angle in degrees
 player_pitch = 0.0                # Pitch angle looking up/down
 player_speed = 0.45               # Movement speed factor
 crouching = False                 # Crouch state
@@ -56,11 +56,10 @@ eye_height = 1.6                  # Standing eye height
 # Jump Physics Parameters
 is_jumping = False
 y_velocity = 0.0
-gravity = -0.016
-jump_strength = 0.36
+gravity = -0.018
+jump_strength = 0.38
 ground_y = 1.0                    # Floor level Y height
 
-# Camera Settings
 first_person = False              # FPS (True) vs Third-Person Follow (False)
 cam_dist = 6.5                    # Distance behind player in 3rd person
 cam_height = 3.8                  # Height above player in 3rd person
@@ -73,6 +72,14 @@ anim_moving_walls = True
 platform_timer = 0
 disappearing_tiles_active = [True, True, True, True, True, True]
 anim_disappearing_floor = True
+
+# Game Pause State
+game_paused = False
+
+# Lava Pit 3-Strike Tracking
+consecutive_lava_falls = 0
+lava_alert_timer = 0           # frames to show lava alert message
+game_over = False
 
 # -----------------------------------------------------------------------------
 # Color Palettes
@@ -308,16 +315,8 @@ def draw_connected_floor_pathways():
     draw_box(45.6, 0.2, 11.2, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
-    # 3. Hazard Pit Chamber Floor (X: 34.4 -> 45.6, Z: 60 -> 120, smoothly bridging around pits)
-    glPushMatrix()
-    glTranslatef(40.0, -0.1, 74.0)
-    draw_box(11.2, 0.2, 16.0, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
-    glPopMatrix()
-
-    glPushMatrix()
-    glTranslatef(40.0, -0.1, 98.0)
-    draw_box(11.2, 0.2, 16.0, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
-    glPopMatrix()
+    # 3. Hazard Corridor: entire floor is lava — NO solid floor tiles here.
+    #    draw_hazard_zones() renders the lava + rock slabs instead.
 
     # 4. Seamless Connection Junction B -> Long Backrooms Corridor B (X: -45.6 -> +45.6, Z: 114.4 -> 125.6)
     glPushMatrix()
@@ -380,16 +379,16 @@ def draw_connected_walls():
 
     # 2. Turn 1 Junction Walls (Connected to Corridor A)
     wall(-6.4, 3.5, 60.0, 0.8, 7.0, 12.0)            # West end cap of Junction A
-    wall(19.6, 3.5, 65.6, 52.8, 7.0, 0.8)           # North Wall (X: -6.4 -> 46.0)
+    wall(13.8, 3.5, 65.6, 41.2, 7.0, 0.8)           # North Wall (X: -6.4 -> 34.4, clear entry to Zone 2 at X: 34.4->45.6)
     wall(20.4, 3.5, 54.4, 28.8, 7.0, 0.8)           # South Wall (X: 6.4 -> 34.8)
 
     # 3. Hazard Pit Corridor Walls (Z: 60 -> 120)
-    wall(34.4, 3.5, 84.4, 0.8, 7.0, 60.8)           # West Wall
+    wall(34.4, 3.5, 90.2, 0.8, 7.0, 49.2)           # West Wall (Z: 65.6 -> 114.8, clear walkway from Junction A)
     wall(45.6, 3.5, 92.8, 0.8, 7.0, 54.4)           # East Wall
 
     # 4. Turn 2 Junction Walls (Connected to Long Backrooms Corridor B)
     wall(45.6, 3.5, 120.0, 0.8, 7.0, 12.0)          # East end cap of Junction B
-    wall(0.0, 3.5, 125.6, 92.0, 7.0, 0.8)           # North Wall (X: -46.0 -> +46.0)
+    wall(5.8, 3.5, 125.6, 80.4, 7.0, 0.8)           # North Wall (X: -34.4 -> +46.0, clear entry to Zone 3 at X: -45.6->-34.4)
     wall(0.0, 3.5, 114.4, 69.6, 7.0, 0.8)           # South Wall (X: -34.8 -> +34.8)
 
     # 5. Disappearing Chamber Walls (Z: 120 -> 180)
@@ -398,7 +397,7 @@ def draw_connected_walls():
 
     # 6. Turn 3 Junction Walls (Connected to Corridor C)
     wall(-45.6, 3.5, 180.0, 0.8, 7.0, 12.0)          # West end cap of Junction C
-    wall(-10.0, 3.5, 185.6, 72.0, 7.0, 0.8)          # North Wall (X: -46.0 -> 26.0)
+    wall(-15.8, 3.5, 185.6, 60.4, 7.0, 0.8)          # North Wall (X: -46.0 -> 14.4, clear entry to Zone 4 at X: 14.4->25.6)
     wall(-10.0, 3.5, 174.4, 50.0, 7.0, 0.8)          # South Wall (X: -34.4 -> 15.6)
 
     # 7. Laser Gauntlet Corridor Walls (Z: 180 -> 240)
@@ -406,7 +405,7 @@ def draw_connected_walls():
     wall(25.6, 3.5, 210.0, 0.8, 7.0, 62.0)           # East Wall
 
     # 8. Turn 4 Junction Walls (Connected to Corridor D)
-    wall(45.0, 3.5, 234.4, 62.0, 7.0, 0.8)          # South Wall (X: 14.4 -> 76.0)
+    wall(50.8, 3.5, 234.4, 50.4, 7.0, 0.8)          # South Wall (X: 25.6 -> 76.0, clear walkway at X: 14.4->25.6)
     wall(45.0, 3.5, 245.6, 40.0, 7.0, 0.8)          # North Wall (X: 25.6 -> 65.6)
 
     # 9. Moving Walls & Exit Chamber Walls (Z: 240 -> 340)
@@ -458,32 +457,159 @@ def draw_pillars_and_archways():
 
 def draw_hazard_zones():
     """
-    Draws Section 2 (X: 40, Z: 60 -> 120): Recessed lava hazard pits.
+    Draws Section 2 (X: 34.4->45.6, Z: 65.6->114.4): Dark Obsidian & Lava Tile Corridor.
+    Designed with a dark atmospheric palette matching 'UPDATE 1.1: WITH LAVA TILES':
+    - Deep glowing molten lava channels beneath dark basalt crust tiles
+    - Stepping stones formed by raised dark obsidian block islands with magma-filled tile grooves
+    - Dark stone wall ledges with glowing lava seams along the corridor edges
     """
+
+    CX   = 40.0        # corridor X centre
+    CXHW = 5.6         # corridor X half-width (34.4 to 45.6)
+    ZSTART = 65.6
+    ZEND   = 114.4
+    ZDEPTH = ZEND - ZSTART   # ~48.8 units
+    ZCZ    = (ZSTART + ZEND) / 2.0  # centre Z
+
+    # -----------------------------------------------------------------
+    # 1. DEEP RECESSED PIT & MOLTEN LAVA BASE
+    # -----------------------------------------------------------------
+    # Pitch dark abyss pit body
     glPushMatrix()
-    glTranslatef(40.0, -1.5, 86.0)
-    draw_box(10.0, 3.0, 8.0, color_top=(0.05, 0.05, 0.05), color_side=(0.15, 0.05, 0.05))
+    glTranslatef(CX, -2.2, ZCZ)
+    draw_box(CXHW * 2, 4.4, ZDEPTH, color_top=(0.02, 0.01, 0.02), color_side=(0.06, 0.02, 0.03))
+    glPopMatrix()
+
+    # Deep fiery crimson base lava
+    glPushMatrix()
+    glTranslatef(CX, 0.0, ZCZ)
+    draw_box(CXHW * 2, 0.06, ZDEPTH, color_top=(0.75, 0.04, 0.0), color_side=(0.50, 0.02, 0.0))
+    glPopMatrix()
+
+    # Bright molten orange-yellow glow channels
+    glPushMatrix()
+    glTranslatef(CX, 0.07, ZCZ)
+    draw_box(CXHW * 2 - 0.8, 0.05, ZDEPTH - 1.6,
+             color_top=(1.0, 0.32, 0.0), color_side=(0.85, 0.15, 0.0))
     glPopMatrix()
 
     glPushMatrix()
-    glTranslatef(40.0, -2.8, 86.0)
-    draw_box(9.6, 0.1, 7.6, color_top=COLOR_LAVA, color_side=(0.7, 0.1, 0.0))
+    glTranslatef(CX, 0.13, ZCZ)
+    draw_box(CXHW * 2 - 2.5, 0.04, ZDEPTH - 4.0,
+             color_top=(1.0, 0.65, 0.0), color_side=(0.95, 0.35, 0.0))
     glPopMatrix()
 
-    glPushMatrix()
-    glTranslatef(40.0, -1.5, 110.0)
-    draw_box(10.0, 3.0, 8.0, color_top=(0.05, 0.05, 0.05), color_side=(0.15, 0.05, 0.05))
-    glPopMatrix()
+    # -----------------------------------------------------------------
+    # 2. FLOOR LAVA TILES GRID (Scattered dark basalt crust tiles)
+    # -----------------------------------------------------------------
+    # Renders a grid of dark lava crust tiles with glowing magma gaps
+    for z_tile in range(int(ZSTART) + 2, int(ZEND) - 2, 3):
+        for x_off in [-3.8, -1.9, 0.0, 1.9, 3.8]:
+            glPushMatrix()
+            glTranslatef(CX + x_off, 0.15, float(z_tile))
+            # Dark volcanic crust tile top with fiery underside glow
+            draw_box(1.5, 0.08, 2.2,
+                     color_top=(0.14, 0.11, 0.12),
+                     color_side=(0.75, 0.20, 0.0))
+            glPopMatrix()
 
-    glPushMatrix()
-    glTranslatef(40.0, -2.8, 110.0)
-    draw_box(9.6, 0.1, 7.6, color_top=COLOR_LAVA, color_side=(0.7, 0.1, 0.0))
-    glPopMatrix()
-
-    for pz in [81.5, 90.5, 105.5, 114.5]:
+    # -----------------------------------------------------------------
+    # 3. BASALT SIDE WALL LEDGES WITH MAGMA SEAMS
+    # -----------------------------------------------------------------
+    for z_side in range(int(ZSTART), int(ZEND), 6):
+        # Left wall basalt ledge block
         glPushMatrix()
-        glTranslatef(40.0, 0.03, pz)
-        draw_box(10.0, 0.04, 0.6, color_top=COLOR_HAZARD_STRIPE, color_side=(0.6, 0.5, 0.0))
+        glTranslatef(CX - CXHW + 0.6, 0.5, float(z_side) + 3.0)
+        draw_box(1.2, 1.2, 5.6, color_top=(0.16, 0.14, 0.16), color_side=(0.10, 0.08, 0.10))
+        glPopMatrix()
+        # Left magma seam
+        glPushMatrix()
+        glTranslatef(CX - CXHW + 0.6, 0.1, float(z_side) + 3.0)
+        draw_box(1.3, 0.1, 5.6, color_top=(1.0, 0.30, 0.0), color_side=(0.8, 0.15, 0.0))
+        glPopMatrix()
+
+        # Right wall basalt ledge block
+        glPushMatrix()
+        glTranslatef(CX + CXHW - 0.6, 0.5, float(z_side) + 3.0)
+        draw_box(1.2, 1.2, 5.6, color_top=(0.16, 0.14, 0.16), color_side=(0.10, 0.08, 0.10))
+        glPopMatrix()
+        # Right magma seam
+        glPushMatrix()
+        glTranslatef(CX + CXHW - 0.6, 0.1, float(z_side) + 3.0)
+        draw_box(1.3, 0.1, 5.6, color_top=(1.0, 0.30, 0.0), color_side=(0.8, 0.15, 0.0))
+        glPopMatrix()
+
+    # -----------------------------------------------------------------
+    # 4. LAVA TILE STEPPING STONE ISLANDS (8 Rocks)
+    # Renders dark obsidian platforms with 3D lava-tile grid tops!
+    # -----------------------------------------------------------------
+    def draw_lava_tile_rock(rx, rz, sx, sz, tilt=0.0):
+        """
+        Draws a dark obsidian stepping stone island with magma-filled
+        tile grooves on top (matching the reference image).
+        """
+        # A. Dark Obsidian Base Structure
+        glPushMatrix()
+        glTranslatef(rx, 1.0, rz)
+        if tilt != 0.0:
+            glRotatef(tilt, 0, 1, 0)
+        draw_box(sx, 0.50, sz,
+                 color_top=(0.12, 0.10, 0.13),
+                 color_side=(0.07, 0.05, 0.08))
+        glPopMatrix()
+
+        # B. Magma Underglow Base Rim
+        glPushMatrix()
+        glTranslatef(rx, 0.76, rz)
+        if tilt != 0.0:
+            glRotatef(tilt, 0, 1, 0)
+        draw_box(sx + 0.25, 0.08, sz + 0.25,
+                 color_top=(1.0, 0.30, 0.0),
+                 color_side=(0.85, 0.15, 0.0))
+        glPopMatrix()
+
+        # C. Glowing Magma Sub-Layer on Rock Surface
+        glPushMatrix()
+        glTranslatef(rx, 1.26, rz)
+        if tilt != 0.0:
+            glRotatef(tilt, 0, 1, 0)
+        draw_box(sx - 0.1, 0.04, sz - 0.1,
+                 color_top=(1.0, 0.55, 0.0),
+                 color_side=(0.9, 0.30, 0.0))
+        glPopMatrix()
+
+        # D. 2x3 Grid of Dark Basalt Lava Tiles on top (Magma glows in the grooves!)
+        tile_w = (sx - 0.5) / 2.0
+        tile_d = (sz - 0.7) / 3.0
+
+        for col in [-1, 1]:
+            for row in [-1, 0, 1]:
+                tx = rx + col * (tile_w / 2.0 + 0.08)
+                tz = rz + row * (tile_d + 0.10)
+                glPushMatrix()
+                glTranslatef(tx, 1.30, tz)
+                if tilt != 0.0:
+                    glRotatef(tilt, 0, 1, 0)
+                draw_box(tile_w, 0.08, tile_d,
+                         color_top=(0.20, 0.17, 0.20),
+                         color_side=(0.10, 0.08, 0.11))
+                glPopMatrix()
+
+    # --- 8 Lava Tile Rock Islands ---
+    draw_lava_tile_rock(40.0,  68.0,  3.6, 4.2, tilt= 0.0)   # R1 — entry (centre)
+    draw_lava_tile_rock(38.8,  74.3,  3.6, 4.2, tilt= 6.0)   # R2 — left
+    draw_lava_tile_rock(41.2,  80.6,  3.6, 4.2, tilt=-6.0)   # R3 — right
+    draw_lava_tile_rock(38.8,  86.9,  3.6, 4.2, tilt= 5.0)   # R4 — left
+    draw_lava_tile_rock(41.2,  93.2,  3.6, 4.2, tilt=-5.0)   # R5 — right
+    draw_lava_tile_rock(38.8,  99.5,  3.6, 4.2, tilt= 6.0)   # R6 — left
+    draw_lava_tile_rock(41.2, 105.8,  3.6, 4.2, tilt=-6.0)   # R7 — right
+    draw_lava_tile_rock(40.0, 112.0,  3.6, 4.2, tilt= 0.0)   # R8 — exit (centre)
+
+    # Warning stripes at corridor entry and exit
+    for pz in [65.8, 114.2]:
+        glPushMatrix()
+        glTranslatef(CX, 0.04, pz)
+        draw_box(CXHW * 2, 0.04, 0.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.6, 0.5, 0.0))
         glPopMatrix()
 
 def draw_disappearing_platforms():
@@ -643,7 +769,8 @@ def draw_exit_portal():
 # -----------------------------------------------------------------------------
 def setup_camera():
     """
-    Configures perspective projection and positions camera in 1st or 3rd person mode.
+    Configures perspective projection and positions camera in 1st or 3rd person mode using gluLookAt.
+    Strictly compliant with course Lab 2/3 camera functions.
     """
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
@@ -662,12 +789,12 @@ def setup_camera():
         cam_y = player_pos[1] + curr_eye_h
         cam_z = player_pos[2]
 
-        target_x = cam_x + math.sin(rad_yaw) * math.cos(rad_pitch)
-        target_y = cam_y + math.sin(rad_pitch)
-        target_z = cam_z + math.cos(rad_yaw) * math.cos(rad_pitch)
+        dir_x = math.sin(rad_yaw) * math.cos(rad_pitch)
+        dir_y = math.sin(rad_pitch)
+        dir_z = math.cos(rad_yaw) * math.cos(rad_pitch)
 
         gluLookAt(cam_x, cam_y, cam_z,
-                  target_x, target_y, target_z,
+                  cam_x + dir_x, cam_y + dir_y, cam_z + dir_z,
                   0.0, 1.0, 0.0)
     else:
         cam_x = player_pos[0] - math.sin(rad_yaw) * cam_dist
@@ -735,33 +862,125 @@ def display():
     draw_text(15, WINDOW_HEIGHT - 55, f"Active Player: 'tung tung tung sahur' | Zone: {zone}")
     draw_text(15, WINDOW_HEIGHT - 80, f"Pos: X={player_pos[0]:.1f}, Y={player_pos[1]:.1f}, Z={player_pos[2]:.1f} | Yaw={player_yaw:.0f} deg")
     draw_text(15, WINDOW_HEIGHT - 105, f"Camera: {'1st Person POV (V to switch)' if first_person else '3rd Person Follow (V to switch)'}")
-    draw_text(15, WINDOW_HEIGHT - 130, f"State: {'CROUCHING (Hitbox Height = 0.8)' if crouching else 'STANDING (Hitbox Height = 1.6)'}")
-    draw_text(15, 20, "Controls: WASD/Arrows: Move/Turn | SPACE: Jump | C/Ctrl: Crouch | V: Camera | R: Reset")
+    if game_over:
+        draw_text(15, WINDOW_HEIGHT - 130, f"GAME OVER! 3 consecutive lava falls. Press 'R' to restart.")
+    elif game_paused:
+        draw_text(15, WINDOW_HEIGHT - 130, f"State: GAME PAUSED (Press 'P' to Resume)")
+    elif lava_alert_timer > 0:
+        draw_text(15, WINDOW_HEIGHT - 130, f"Lava Strikes: {consecutive_lava_falls}/3 - Fell into the lava!")
+    else:
+        draw_text(15, WINDOW_HEIGHT - 130, f"State: {'CROUCHING (Hitbox Height = 0.8)' if crouching else 'STANDING (Hitbox Height = 1.6)'}")
+    draw_text(15, 20, "Controls: WASD/Arrows: Move/Turn | SPACE: Jump | C/Ctrl: Crouch | V: Camera | P: Pause | R: Reset")
 
     glutSwapBuffers()
 
 # -----------------------------------------------------------------------------
 # Physics & Animation Loop
 # -----------------------------------------------------------------------------
+# --- Lava Corridor Geometry Constants ---
+LAVA_PIT_X_MIN  = 34.4
+LAVA_PIT_X_MAX  = 45.6
+LAVA_PIT_1_ZMIN = 66.0     # Full corridor start
+LAVA_PIT_1_ZMAX = 114.4    # Full corridor end
+# (no separate pit 2 — entire corridor is one lava zone)
+
+# Rock top surface Y = 1.25  (centre Y=1.0 + half-height 0.25)
+STEP_TOP_Y = 1.25
+
+# All 8 rocks: (x_centre, z_centre, half_x, half_z)
+# Generous hitboxes (3.6x4.2 slab -> half_x=2.0, half_z=2.3) for fast fluid running
+STEPPING_BOXES = [
+    (40.0,  68.0, 2.0, 2.3),  # R1 — entry centre
+    (38.8,  74.3, 2.0, 2.3),  # R2 — left
+    (41.2,  80.6, 2.0, 2.3),  # R3 — right
+    (38.8,  86.9, 2.0, 2.3),  # R4 — left
+    (41.2,  93.2, 2.0, 2.3),  # R5 — right
+    (38.8,  99.5, 2.0, 2.3),  # R6 — left
+    (41.2, 105.8, 2.0, 2.3),  # R7 — right
+    (40.0, 112.0, 2.0, 2.3),  # R8 — exit centre
+]
+
+def on_stepping_box():
+    """Returns True if the player is horizontally over ANY rock slab."""
+    px, pz = player_pos[0], player_pos[2]
+    for (bx, bz, hx, hz) in STEPPING_BOXES:
+        if (bx - hx) <= px <= (bx + hx) and (bz - hz) <= pz <= (bz + hz):
+            return True
+    return False
+
+def in_lava_pit():
+    """Returns True if the player is in the lava corridor but NOT on a rock."""
+    px, pz = player_pos[0], player_pos[2]
+    in_x  = LAVA_PIT_X_MIN <= px <= LAVA_PIT_X_MAX
+    in_z  = LAVA_PIT_1_ZMIN <= pz <= LAVA_PIT_1_ZMAX
+    return in_x and in_z and not on_stepping_box()
+
 def update_player_physics():
     """
-    Handles player jumping physics, gravity update, and floor collision.
+    Handles player jumping physics, gravity update, floor/stepping-box collision,
+    and lava fall 3-strike detection.
     """
     global player_pos, is_jumping, y_velocity
+    global consecutive_lava_falls, lava_alert_timer, game_over
 
     if is_jumping:
         player_pos[1] += y_velocity
         y_velocity += gravity
-        if player_pos[1] <= ground_y:
-            player_pos[1] = ground_y
+
+        # --- Landing on a stepping stone box ---
+        if on_stepping_box() and y_velocity <= 0 and player_pos[1] <= STEP_TOP_Y:
+            player_pos[1] = STEP_TOP_Y
             is_jumping = False
             y_velocity = 0.0
+            # Safe crossing — reset strike counter
+            consecutive_lava_falls = 0
+            return
+
+        # --- Sinking into ground ---
+        if player_pos[1] <= ground_y:
+            if in_lava_pit():
+                # Fell into lava — penalise
+                consecutive_lava_falls += 1
+                lava_alert_timer = 180          # show alert ~3 s at 60 fps
+                if consecutive_lava_falls >= 3:
+                    game_over = True
+                # Respawn at lava section entry
+                player_pos = [40.0, 1.0, 65.0]
+                player_yaw = 0.0
+            else:
+                player_pos[1] = ground_y
+            is_jumping = False
+            y_velocity = 0.0
+    else:
+        # On stepping box: keep player at box top height
+        if on_stepping_box() and player_pos[1] >= STEP_TOP_Y - 0.05:
+            player_pos[1] = STEP_TOP_Y
+        # Detect walking off platform into lava while not jumping
+        elif in_lava_pit() and player_pos[1] <= ground_y + 0.05:
+            consecutive_lava_falls += 1
+            lava_alert_timer = 180
+            if consecutive_lava_falls >= 3:
+                game_over = True
+            player_pos = [40.0, 1.0, 65.0]
+            player_yaw = 0.0
+        # Successful crossing past both pits — reset strike counter
+        elif player_pos[2] > LAVA_PIT_1_ZMAX and consecutive_lava_falls > 0:
+            consecutive_lava_falls = 0
+
+    # Tick alert display timer
+    if lava_alert_timer > 0:
+        lava_alert_timer -= 1
 
 def idle():
     """
     Idle Callback: Updates player physics and scaffolding animations.
+    Uses strictly allowlisted GLUT callbacks (glutDisplayFunc, glutIdleFunc, glutKeyboardFunc, glutSpecialFunc, glutMouseFunc).
     """
     global moving_walls_offset, moving_walls_dir, platform_timer, disappearing_tiles_active
+
+    if game_paused or game_over:
+        glutPostRedisplay()
+        return
 
     update_player_physics()
 
@@ -781,17 +1000,30 @@ def idle():
 # -----------------------------------------------------------------------------
 # Input Event Handlers
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Input Event Handlers (Strictly Allowlisted Lab Callbacks)
+# -----------------------------------------------------------------------------
 def keyboard_listener(key, x, y):
     """
-    Handles WASD, Spacebar, C, V, M, T, R, and ESC keys.
+    Handles WASD, Spacebar, C, V, P, M, T, R, and ESC keys (glutKeyboardFunc).
     """
     global player_pos, player_yaw, crouching, first_person, anim_moving_walls, anim_disappearing_floor
-    global is_jumping, y_velocity
+    global is_jumping, y_velocity, game_paused
+    global consecutive_lava_falls, lava_alert_timer, game_over
 
     try:
         ch = key.decode('utf-8').lower()
     except:
         ch = str(key).lower()
+
+    # Pause Toggle: P Key
+    if ch == 'p':
+        game_paused = not game_paused
+        glutPostRedisplay()
+        return
+
+    if game_paused or game_over:
+        return
 
     rad = math.radians(player_yaw)
 
@@ -815,7 +1047,7 @@ def keyboard_listener(key, x, y):
     elif ch == 'c':
         crouching = not crouching
 
-    # Jump Action: Spacebar
+    # Jump Action: Spacebar (b' ' / 0x20)
     elif ch == ' ' or key == b' ':
         if not is_jumping:
             is_jumping = True
@@ -837,6 +1069,9 @@ def keyboard_listener(key, x, y):
         player_yaw = 0.0
         crouching = False
         is_jumping = False
+        consecutive_lava_falls = 0
+        lava_alert_timer = 0
+        game_over = False
 
     # ESC Key to Exit
     elif key == b'\x1b':
@@ -849,9 +1084,11 @@ def keyboard_listener(key, x, y):
 
 def special_key_listener(key, x, y):
     """
-    Handles Arrow Keys (Up/Down for move forward/backward, Left/Right for turn yaw) and Left Ctrl.
+    Handles Arrow Keys (Up/Down for move forward/backward, Left/Right for turn yaw) and Left Ctrl (glutSpecialFunc).
     """
-    global player_pos, player_yaw, crouching
+    global player_pos, player_yaw, crouching, game_paused
+    if game_paused or game_over:
+        return
     rad = math.radians(player_yaw)
 
     if key == GLUT_KEY_UP:
@@ -871,7 +1108,7 @@ def special_key_listener(key, x, y):
 
 def mouse_listener(button, state, x, y):
     """
-    Handles mouse clicks (Right Click toggles Camera view).
+    Handles mouse clicks (Right Click toggles Camera view) (glutMouseFunc).
     """
     global first_person
     if state == GLUT_DOWN:
@@ -891,7 +1128,7 @@ def main():
 
     load_character_model()
 
-    # Register GLUT Callbacks
+    # Register 100% Allowlisted Lab Callbacks Only
     glutDisplayFunc(display)
     glutIdleFunc(idle)
     glutKeyboardFunc(keyboard_listener)
