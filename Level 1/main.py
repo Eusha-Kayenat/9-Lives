@@ -20,7 +20,7 @@ Controls:
 - A / D                 : Strafe Left / Right
 - Left / Right Arrows   : Turn Character / Camera Yaw
 - Spacebar              : Jump (Smooth velocity + gravity)
-- C / Left Ctrl         : Crouch (Hitbox drops to 0.8 units)
+- Left / Right Ctrl     : Crouch (Hitbox drops to 0.8 units)
 - V / Right-Click       : Toggle Camera View (1st Person POV <-> 3rd Person Follow)
 - M                     : Toggle Moving Wall Shift Demo
 - T                     : Toggle Disappearing Platform Flash Demo
@@ -176,11 +176,11 @@ def draw_box(sx, sy, sz, color_top=None, color_side=None):
     
     glEnd()
 
-def draw_text(x, y, text_str):
+def draw_text(x, y, text_str, color=(1.0, 1.0, 1.0)):
     """
-    Renders 2D HUD text using GLUT_BITMAP_HELVETICA_18.
+    Renders 2D HUD text using GLUT_BITMAP_HELVETICA_18 with optional color parameter.
     """
-    glColor3f(1.0, 1.0, 1.0)
+    glColor3f(*color)
     glMatrixMode(GL_PROJECTION)
     glPushMatrix()
     glLoadIdentity()
@@ -194,6 +194,44 @@ def draw_text(x, y, text_str):
     for ch in text_str:
         glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
         
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
+def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(0.9, 0.9, 0.9)):
+    """
+    Renders a 2D health bar with border frame and filled percentage (Level 3 HUD style).
+    """
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+
+    # Border frame
+    glLineWidth(1.5)
+    glBegin(GL_LINES)
+    glColor3f(*border_color)
+    glVertex2f(x, y); glVertex2f(x + w, y)
+    glVertex2f(x + w, y); glVertex2f(x + w, y + h)
+    glVertex2f(x + w, y + h); glVertex2f(x, y + h)
+    glVertex2f(x, y + h); glVertex2f(x, y)
+    glEnd()
+
+    # Inner health fill
+    fill_w = max(0.0, min(1.0, fill_pct)) * (w - 2)
+    if fill_w > 0:
+        glBegin(GL_QUADS)
+        glColor3f(*fill_color)
+        glVertex2f(x + 1, y + 1)
+        glVertex2f(x + 1 + fill_w, y + 1)
+        glVertex2f(x + 1 + fill_w, y + h - 1)
+        glVertex2f(x + 1, y + h - 1)
+        glEnd()
+
     glPopMatrix()
     glMatrixMode(GL_PROJECTION)
     glPopMatrix()
@@ -896,12 +934,59 @@ def setup_camera():
                   target_x, target_y, target_z,
                   0.0, 1.0, 0.0)
 
+def draw_rect_2d(x1, y1, x2, y2, color):
+    """Draws a filled 2D rectangle in orthographic mode."""
+    glColor3f(*color)
+    glBegin(GL_QUADS)
+    glVertex2f(x1, y1)
+    glVertex2f(x2, y1)
+    glVertex2f(x2, y2)
+    glVertex2f(x1, y2)
+    glEnd()
+
+def draw_rect_border_2d(x1, y1, x2, y2, color, line_width=2.0):
+    """Draws a 2D rectangular border frame in orthographic mode."""
+    glColor3f(*color)
+    glLineWidth(line_width)
+    glBegin(GL_LINES)
+    glVertex2f(x1, y1); glVertex2f(x2, y1)
+    glVertex2f(x2, y1); glVertex2f(x2, y2)
+    glVertex2f(x2, y2); glVertex2f(x1, y2)
+    glVertex2f(x1, y2); glVertex2f(x1, y1)
+    glEnd()
+
+def update_window_dimensions():
+    """
+    Queries current GLUT window dimensions and updates global WINDOW_WIDTH / WINDOW_HEIGHT.
+    Ensures perfect centering when the game is maximized or full-screened.
+    """
+    global WINDOW_WIDTH, WINDOW_HEIGHT
+    cur_w = glutGet(GLUT_WINDOW_WIDTH)
+    cur_h = glutGet(GLUT_WINDOW_HEIGHT)
+    if cur_w > 0 and cur_h > 0:
+        WINDOW_WIDTH, WINDOW_HEIGHT = cur_w, cur_h
+
+def reshape_listener(w, h):
+    """
+    GLUT reshape callback when window size changes (fullscreen, maximize, resize).
+    """
+    global WINDOW_WIDTH, WINDOW_HEIGHT
+    if w > 0 and h > 0:
+        WINDOW_WIDTH, WINDOW_HEIGHT = w, h
+        glViewport(0, 0, w, h)
+        glutPostRedisplay()
+
 def draw_story_screen():
     """
-    Renders the 2D Typewriter Story Screen before Level 1 starts.
+    Renders a centered cinematic Story UI Screen with glassmorphism panel,
+    theme-matching cyan/gold colors, typewriter text, and pulsing start prompt.
+    Automatically stays dynamically centered on full screen / window resize.
     """
-    glClearColor(0.04, 0.04, 0.06, 1.0)
+    update_window_dimensions()
+
+    glClearColor(0.03, 0.04, 0.07, 1.0)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
 
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
@@ -910,17 +995,66 @@ def draw_story_screen():
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
 
-    # Title Header
-    title_str = "=== 9 LIVES: LEVEL 1 ==="
-    t_start_x = (WINDOW_WIDTH - len(title_str) * 11) // 2
-    glRasterPos2f(t_start_x, WINDOW_HEIGHT - 120)
-    glColor3f(1.0, 0.35, 0.1)  # Fiery Crimson/Orange
+    # 1. Background Ambient Grid
+    glLineWidth(1.0)
+    glColor3f(0.08, 0.10, 0.16)
+    glBegin(GL_LINES)
+    for gx in range(0, WINDOW_WIDTH, 40):
+        glVertex2f(gx, 0); glVertex2f(gx, WINDOW_HEIGHT)
+    for gy in range(0, WINDOW_HEIGHT, 40):
+        glVertex2f(0, gy); glVertex2f(WINDOW_WIDTH, gy)
+    glEnd()
+
+    # 2. Centered Story UI Container Panel Box
+    panel_w, panel_h = 680, 360
+    px1 = (WINDOW_WIDTH - panel_w) // 2
+    px2 = px1 + panel_w
+    py1 = (WINDOW_HEIGHT - panel_h) // 2
+    py2 = py1 + panel_h
+
+    # Dark Slate Inner Glass Box
+    draw_rect_2d(px1, py1, px2, py2, (0.07, 0.08, 0.13))
+
+    # Outer Cyan & Gold Dual Accent Borders
+    draw_rect_border_2d(px1, py1, px2, py2, (0.0, 0.75, 0.95), line_width=2.5)
+    draw_rect_border_2d(px1 + 4, py1 + 4, px2 - 4, py2 - 4, (1.0, 0.7, 0.2), line_width=1.0)
+
+    # 3. Header Title (Fiery Orange / Amber Gold)
+    title_str = "★  9 LIVES: EVIL CAT WORLD  ★"
+    t_w = len(title_str) * 9.2
+    t_start_x = (WINDOW_WIDTH - t_w) // 2
+    title_y = py2 - 48
+
+    # Title Glow Shadow
+    glColor3f(0.3, 0.1, 0.0)
+    glRasterPos2f(t_start_x + 1, title_y - 1)
     for ch in title_str:
         glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
 
-    # Typewriter story text rendering line-by-line
+    glColor3f(1.0, 0.45, 0.15)
+    glRasterPos2f(t_start_x, title_y)
+    for ch in title_str:
+        glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
+
+    # Divider Accent Line under Title
+    glColor3f(0.0, 0.75, 0.95)
+    glLineWidth(2.0)
+    glBegin(GL_LINES)
+    glVertex2f(px1 + 40, py2 - 62)
+    glVertex2f(px2 - 40, py2 - 62)
+    glEnd()
+
+    # 4. Typewriter Story Body Text Lines (Vertically & Horizontally Centered inside Panel)
     chars_left = story_char_index
-    start_y = WINDOW_HEIGHT // 2 + 50
+    body_center_y = py1 + 175  # Vertical center of panel
+
+    # 3 lines spacing offsets: +35, -5, -45
+    line_y_offsets = [35, -5, -45]
+    line_colors = [
+        (1.0, 0.88, 0.35),  # Warm Gold for Line 1 ("Tung Tung Tung Sahur...")
+        (0.95, 0.92, 0.85), # Soft White for Line 2 ("Armed with 9 Lives...")
+        (0.95, 0.92, 0.85)  # Soft White for Line 3 ("defeat the wicked cats...")
+    ]
 
     for i, line in enumerate(story_lines):
         if chars_left <= 0:
@@ -928,19 +1062,38 @@ def draw_story_screen():
         visible_text = line[:chars_left]
         chars_left -= len(line)
 
-        # Center line text horizontally
-        start_x = (WINDOW_WIDTH - len(line) * 9.5) // 2
-        glRasterPos2f(start_x, start_y - i * 42)
-        glColor3f(0.95, 0.85, 0.2)  # Bright Gold
+        # Center line horizontally
+        l_w = len(line) * 9.2
+        start_x = (WINDOW_WIDTH - l_w) // 2
+        line_y = body_center_y + line_y_offsets[i]
+
+        glColor3f(*line_colors[i])
+        glRasterPos2f(start_x, line_y)
         for ch in visible_text:
             glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
 
-    # Pulsing bottom prompt
-    prompt_str = "Press SPACE or ENTER to Start Level 1"
-    p_start_x = (WINDOW_WIDTH - len(prompt_str) * 9.5) // 2
-    pulse_brightness = 0.6 + 0.4 * math.sin(story_timer * 0.08)
-    glColor3f(0.2 * pulse_brightness, 0.95 * pulse_brightness, 1.0 * pulse_brightness)
-    glRasterPos2f(p_start_x, 100)
+    # 5. Pulsing Bottom Prompt Button Bar
+    prompt_str = "PRESS SPACE OR ENTER TO START"
+    # Measure exact GLUT pixel width for 100% precise horizontal centering
+    p_w = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(ch)) for ch in prompt_str)
+    p_start_x = (WINDOW_WIDTH - p_w) // 2
+    prompt_y = py1 + 35
+
+    pulse_val = 0.5 + 0.5 * math.sin(story_timer * 0.08)
+
+    # Symmetrical prompt button box dimensions (24px horizontal, 18px vertical padding)
+    box_x1 = p_start_x - 24
+    box_x2 = p_start_x + p_w + 24
+    box_y1 = prompt_y - 10
+    box_y2 = prompt_y + 26
+
+    # Draw prompt button background & glowing border frame
+    draw_rect_2d(box_x1, box_y1, box_x2, box_y2, (0.05, 0.12 + 0.10 * pulse_val, 0.20 + 0.15 * pulse_val))
+    draw_rect_border_2d(box_x1, box_y1, box_x2, box_y2, (0.0, 0.70 + 0.30 * pulse_val, 0.90 + 0.10 * pulse_val), line_width=2.0)
+
+    # Render prompt text perfectly centered inside button bar
+    glColor3f(0.85 + 0.15 * pulse_val, 0.95 + 0.05 * pulse_val, 1.0)
+    glRasterPos2f(p_start_x, prompt_y)
     for ch in prompt_str:
         glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
 
@@ -950,6 +1103,8 @@ def display():
     """
     Main OpenGL Display Callback.
     """
+    update_window_dimensions()
+
     if in_story_screen:
         draw_story_screen()
         return
@@ -1004,21 +1159,35 @@ def display():
     else:
         zone = "6. Exit Portal Chamber (Maze End)"
 
-    # Render HUD Text Overlay
-    cheat_status_str = " [GOD MODE ACTIVE]" if cheat_mode else ""
-    draw_text(15, WINDOW_HEIGHT - 30, f"9 Lives - Level 1: Fully Connected Maze Walkway Arena{cheat_status_str}")
-    draw_text(15, WINDOW_HEIGHT - 55, f"Active Player: 'tung tung tung sahur' | Zone: {zone}")
-    draw_text(15, WINDOW_HEIGHT - 80, f"Pos: X={player_pos[0]:.1f}, Y={player_pos[1]:.1f}, Z={player_pos[2]:.1f} | Yaw={player_yaw:.0f} deg")
-    draw_text(15, WINDOW_HEIGHT - 105, f"Camera: {'1st Person POV (V to switch)' if first_person else '3rd Person Follow (V to switch)'}")
-    if game_over:
-        draw_text(15, WINDOW_HEIGHT - 130, f"GAME OVER! 3 Hazard Strikes reached. Press 'R' to restart.")
-    elif game_paused:
-        draw_text(15, WINDOW_HEIGHT - 130, f"State: GAME PAUSED (Press 'P' to Resume)")
-    elif lava_alert_timer > 0:
-        draw_text(15, WINDOW_HEIGHT - 130, f"Hazard Strikes: {consecutive_lava_falls}/3 - {hazard_alert_text}")
+    # Render Clean HUD Overlay (Top-Left Corner) - Level 3 Health Bar Style
+    remaining_lives = max(0, 9 - consecutive_lava_falls)
+    player_pct = remaining_lives / 9.0
+
+    # Color transition based on remaining health percentage (Green -> Yellow -> Red)
+    if player_pct > 0.5:
+        bar_color = (0.1, 0.9, 0.2)    # Bright Green
+    elif player_pct > 0.25:
+        bar_color = (1.0, 0.8, 0.0)    # Warning Yellow
     else:
-        draw_text(15, WINDOW_HEIGHT - 130, f"State: {'CROUCHING (Hitbox Height = 0.8)' if crouching else 'STANDING (Hitbox Height = 1.6)'}")
-    draw_text(15, 20, "Controls: WASD/Arrows: Move/Turn | SPACE: Jump | C/Ctrl: Crouch | V: Camera | P: Pause | 1: God Mode | R: Reset")
+        bar_color = (1.0, 0.15, 0.15)  # Danger Red
+
+    pw, ph = 220, 16
+    px, py = 15, WINDOW_HEIGHT - 35
+    draw_bar_2d(px, py, pw, ph, player_pct, bar_color, border_color=(0.9, 0.9, 0.9))
+    draw_text(px + pw + 12, py + 1, f"Lives ({remaining_lives}/9)")
+
+    draw_text(15, WINDOW_HEIGHT - 65, f"Crouch: {'ON' if crouching else 'OFF'}")
+    if cheat_mode:
+        draw_text(15, WINDOW_HEIGHT - 90, "Cheat Mode Activated", color=(1.0, 0.15, 0.15))
+
+    if game_over:
+        draw_text(15, WINDOW_HEIGHT - 120, "GAME OVER! All 9 Lifelines lost. Press 'R' to restart.")
+    elif game_paused:
+        draw_text(15, WINDOW_HEIGHT - 120, "GAME PAUSED (Press 'P' to Resume)")
+    elif lava_alert_timer > 0:
+        draw_text(15, WINDOW_HEIGHT - 120, f"ALERT: {hazard_alert_text}")
+
+    draw_text(15, 20, "Controls: WASD/Arrows: Move/Turn | SPACE: Jump | Ctrl: Crouch | V: Camera | P: Pause | C: God Mode | R: Reset")
 
     glutSwapBuffers()
 
@@ -1091,9 +1260,9 @@ def check_laser_collisions():
             # If the player is NOT dodging (neither crouching nor jumping), the laser hits!
             if not player_is_dodging:
                 consecutive_lava_falls += 1
-                hazard_alert_text = "Hit by Laser! (Crouch 'C' or Jump 'SPACE' to dodge)"
+                hazard_alert_text = "Hit by Laser! (Crouch 'CTRL' or Jump 'SPACE' to dodge)"
                 lava_alert_timer = 180
-                if consecutive_lava_falls >= 3:
+                if consecutive_lava_falls >= 9:
                     game_over = True
                 # Respawn at Laser Gauntlet entrance
                 player_pos = [20.0, 1.0, 182.0]
@@ -1150,7 +1319,7 @@ def check_moving_wall_collisions():
                 lava_alert_timer = 180
                 wall_invincibility_timer = 60  # ~1 second of invincibility blink
 
-                if consecutive_lava_falls >= 3:
+                if consecutive_lava_falls >= 9:
                     game_over = True
 
                 if consecutive_wall_hits >= 3:
@@ -1167,12 +1336,19 @@ def check_moving_wall_collisions():
                 return True
     return False
 
+def is_on_active_disappearing_tile(px, pz):
+    """Returns True if (px, pz) is positioned over an ACTIVE disappearing tile."""
+    for tile_x, tile_z, color_idx in DISAPPEARING_TILE_COORDS:
+        if (tile_x - 1.4) <= px <= (tile_x + 1.4) and (tile_z - 2.0) <= pz <= (tile_z + 2.0):
+            if disappearing_tiles_active[color_idx]:
+                return True
+    return False
+
 def check_disappearing_floor():
     """
-    Checks whether the player is stepping on an INACTIVE disappearing tile (X/Z bounds).
-    If inactive and player is not jumping high, treats as falling through:
-    increments hazard_strikes, displays alert, and respawns near chamber entrance [-40.0, 1.0, 122.0].
-    Shared 3-strike fail condition with lava hazard.
+    Checks whether the player is inside the Disappearing Floor tile field (Zone 3: Z=135.0->165.0).
+    If the player steps on a vanished tile OR steps into empty void space (not on an active tile)
+    while at floor level, deducts a lifeline, displays hazard alert, and respawns on the safe entry walkway.
     """
     global player_pos, player_yaw, is_jumping, y_velocity
     global consecutive_lava_falls, lava_alert_timer, hazard_alert_text, game_over
@@ -1182,23 +1358,29 @@ def check_disappearing_floor():
 
     px, py, pz = player_pos[0], player_pos[1], player_pos[2]
 
-    # Tile bounds: half-width 1.4, half-depth 2.0 around center
-    for tile_x, tile_z, color_idx in DISAPPEARING_TILE_COORDS:
-        if (tile_x - 1.4) <= px <= (tile_x + 1.4) and (tile_z - 2.0) <= pz <= (tile_z + 2.0):
-            is_active = disappearing_tiles_active[color_idx]
-            # If the tile is INACTIVE and player is at floor level (not jumping high above)
-            if not is_active and py <= ground_y + 0.15:
-                consecutive_lava_falls += 1
-                hazard_alert_text = "The floor vanished beneath you!"
-                lava_alert_timer = 180
-                if consecutive_lava_falls >= 3:
-                    game_over = True
-                # Respawn near chamber entrance
-                player_pos = [-40.0, 1.0, 122.0]
-                player_yaw = 0.0
-                is_jumping = False
-                y_velocity = 0.0
-                return True
+    # Only check inside the tile field gap (X: -45.6 -> -34.4, Z: 135.0 -> 165.0)
+    if not (-45.6 <= px <= -34.4 and 135.0 <= pz <= 165.0):
+        return False
+
+    # Safe if player is airborne jumping high above the floor
+    if py > ground_y + 0.15:
+        return False
+
+    # Check if player is standing on any active platform
+    if not is_on_active_disappearing_tile(px, pz):
+        # Stepped on a vanished tile OR into the void gap!
+        consecutive_lava_falls += 1
+        hazard_alert_text = "Fell into the void!"
+        lava_alert_timer = 180
+        if consecutive_lava_falls >= 9:
+            game_over = True
+        # Respawn safely on the solid entry walkway before the tile gap
+        player_pos = [-40.0, 1.0, 128.0]
+        player_yaw = 0.0
+        is_jumping = False
+        y_velocity = 0.0
+        return True
+
     return False
 
 def update_player_physics():
@@ -1218,8 +1400,6 @@ def update_player_physics():
             player_pos[1] = STEP_TOP_Y
             is_jumping = False
             y_velocity = 0.0
-            # Safe crossing — reset strike counter
-            consecutive_lava_falls = 0
             return
 
         # --- Sinking into ground ---
@@ -1230,7 +1410,7 @@ def update_player_physics():
                     consecutive_lava_falls += 1
                     hazard_alert_text = "Fell into the lava!"
                     lava_alert_timer = 180          # show alert ~3 s at 60 fps
-                    if consecutive_lava_falls >= 3:
+                    if consecutive_lava_falls >= 9:
                         game_over = True
                     # Respawn at lava section entry
                     player_pos = [40.0, 1.0, 65.0]
@@ -1251,7 +1431,7 @@ def update_player_physics():
                 consecutive_lava_falls += 1
                 hazard_alert_text = "Fell into the lava!"
                 lava_alert_timer = 180
-                if consecutive_lava_falls >= 3:
+                if consecutive_lava_falls >= 9:
                     game_over = True
                 player_pos = [40.0, 1.0, 65.0]
                 player_yaw = 0.0
@@ -1259,9 +1439,6 @@ def update_player_physics():
                 player_pos[1] = ground_y
         else:
             player_pos[1] = ground_y
-        # Successful crossing past lava corridor — reset strike counter
-        if player_pos[2] > LAVA_PIT_1_ZMAX and consecutive_lava_falls > 0:
-            consecutive_lava_falls = 0
 
     # --- Check Disappearing Floor Hazard Collision ---
     check_disappearing_floor()
@@ -1383,6 +1560,32 @@ def try_move_player(dx, dz):
     elif is_valid_walkway_position(player_pos[0], new_z):
         player_pos[2] = new_z
 
+def reset_game():
+    """
+    Restores player position, facing angle, physics state, hazard counters, alerts,
+    and game over/paused states back to initial start level defaults.
+    """
+    global player_pos, player_yaw, crouching, first_person, is_jumping, y_velocity
+    global consecutive_lava_falls, lava_alert_timer, hazard_alert_text
+    global consecutive_wall_hits, wall_invincibility_timer, cheat_mode, game_over, game_paused
+    global moving_walls_offset, moving_walls_dir
+
+    player_pos = [0.0, 1.0, 7.4]
+    player_yaw = 0.0
+    crouching = False
+    is_jumping = False
+    y_velocity = 0.0
+    consecutive_lava_falls = 0
+    lava_alert_timer = 0
+    hazard_alert_text = "Fell into the lava!"
+    consecutive_wall_hits = 0
+    wall_invincibility_timer = 0
+    cheat_mode = False
+    game_over = False
+    game_paused = False
+    moving_walls_offset = 0.0
+    moving_walls_dir = 1.0
+
 def keyboard_listener(key, x, y):
     """
     Handles WASD, Spacebar, C, V, P, M, T, R, and ESC keys (glutKeyboardFunc).
@@ -1404,11 +1607,15 @@ def keyboard_listener(key, x, y):
             glutPostRedisplay()
         return
 
-    # God Mode / Invincibility Cheat Toggle: 1 Key
-    if ch == '1':
+    # Game Restart: R Key (r / R) — Always active (Game Over, Paused, or Playing)
+    if ch == 'r':
+        reset_game()
+        glutPostRedisplay()
+        return
+
+    # God Mode / Invincibility Cheat Toggle: C Key (c/C)
+    if ch == 'c':
         cheat_mode = not cheat_mode
-        hazard_alert_text = "GOD MODE: ENABLED (Invincible)" if cheat_mode else "GOD MODE: DISABLED"
-        lava_alert_timer = 180
         glutPostRedisplay()
         return
 
@@ -1417,6 +1624,13 @@ def keyboard_listener(key, x, y):
         game_paused = not game_paused
         glutPostRedisplay()
         return
+
+    # ESC Key to Exit
+    if key == b'\x1b':
+        try:
+            glutLeaveMainLoop()
+        except:
+            sys.exit(0)
 
     if game_paused or game_over:
         return
@@ -1435,10 +1649,6 @@ def keyboard_listener(key, x, y):
     elif ch == 'd':
         try_move_player(math.sin(rad - math.pi/2.0) * player_speed, math.cos(rad - math.pi/2.0) * player_speed)
 
-    # Crouch Toggle: C Key
-    elif ch == 'c':
-        crouching = not crouching
-
     # Jump Action: Spacebar (b' ' / 0x20)
     elif ch == ' ' or key == b' ':
         if not is_jumping:
@@ -1455,26 +1665,7 @@ def keyboard_listener(key, x, y):
     elif ch == 't':
         anim_disappearing_floor = not anim_disappearing_floor
 
-    # Reset Position: R Key
-    elif ch == 'r':
-        player_pos = [0.0, 1.0, 7.4]
-        player_yaw = 0.0
-        crouching = False
-        is_jumping = False
-        consecutive_lava_falls = 0
-        lava_alert_timer = 0
-        hazard_alert_text = "Fell into the lava!"
-        consecutive_wall_hits = 0
-        wall_invincibility_timer = 0
-        cheat_mode = False
-        game_over = False
-
-    # ESC Key to Exit
-    elif key == b'\x1b':
-        try:
-            glutLeaveMainLoop()
-        except:
-            sys.exit(0)
+    glutPostRedisplay()
 
     glutPostRedisplay()
 
@@ -1495,7 +1686,7 @@ def special_key_listener(key, x, y):
         player_yaw = (player_yaw + 4.5) % 360.0
     elif key == GLUT_KEY_RIGHT:
         player_yaw = (player_yaw - 4.5) % 360.0
-    elif key == 114 or key == 115: # GLUT_KEY_CTRL_L or GLUT_KEY_CTRL_R
+    elif key in (114, 115): # GLUT_KEY_CTRL_L or GLUT_KEY_CTRL_R (Ctrl Key Crouch Toggle)
         crouching = not crouching
 
     glutPostRedisplay()
@@ -1524,6 +1715,7 @@ def main():
 
     # Register 100% Allowlisted Lab Callbacks Only
     glutDisplayFunc(display)
+    glutReshapeFunc(reshape_listener)
     glutIdleFunc(idle)
     glutKeyboardFunc(keyboard_listener)
     glutSpecialFunc(special_key_listener)
