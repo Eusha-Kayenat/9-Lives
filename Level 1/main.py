@@ -49,7 +49,7 @@ WINDOW_TITLE = b"9 Lives - Level 1: Connected Backrooms Maze Arena ('tung tung t
 player_pos = [0.0, 1.0, 5.0]     # X, Y, Z coordinates
 player_yaw = 0.0                  # Character facing angle in degrees
 player_pitch = 0.0                # Pitch angle looking up/down
-player_speed = 0.45               # Movement speed factor
+player_speed = 0.80          # Movement speed factor
 crouching = False                 # Crouch state
 eye_height = 1.6                  # Standing eye height
 
@@ -81,6 +81,10 @@ consecutive_lava_falls = 0
 lava_alert_timer = 0           # frames to show alert message
 hazard_alert_text = "Fell into the lava!"
 game_over = False
+
+# Moving Walls Hazard Tracking (Zone 5)
+consecutive_wall_hits = 0
+wall_invincibility_timer = 0   # frames of invincibility after wall crush hit
 
 # -----------------------------------------------------------------------------
 # Color Palettes
@@ -699,17 +703,24 @@ def draw_disappearing_platforms():
             
         glPopMatrix()
 
+# -----------------------------------------------------------------------------
+# Laser Gauntlet Constants & Rendering (Section 4, X: 14.4 -> 25.6, Z: 180 -> 240)
+# -----------------------------------------------------------------------------
+LASER_BEAMS = [
+    (192.0, 2.2,  COLOR_LASER_RED, "Laser 1 (Z: 192.0, Y: 2.2) - High Beam (Crouch Under)"),
+    (202.0, 0.65, COLOR_LASER_RED, "Laser 2 (Z: 202.0, Y: 0.65) - Low Beam (Jump Over)"),
+    (212.0, 2.2,  COLOR_LASER_RED, "Laser 3 (Z: 212.0, Y: 2.2) - High Beam (Crouch Under)"),
+    (222.0, 0.65, COLOR_LASER_RED, "Laser 4 (Z: 222.0, Y: 0.65) - Low Beam (Jump Over)"),
+    (232.0, 1.8,  COLOR_LASER_RED, "Laser 5 (Z: 232.0, Y: 1.8) - Mid-High Beam (Crouch Dodge)")
+]
+
 def draw_laser_emitters():
     """
-    Draws Section 4 (X: 20, Z: 180 -> 240): Crouch & Jump horizontal laser beams.
+    Draws Section 4 (X: 14.4 -> 25.6, Z: 180 -> 240): Crouch & Jump horizontal laser beams.
+    Renders all 5 red laser beams with side emitter boxes and thick glowing red lines.
     """
-    laser_data = [
-        (198.0, 2.2, COLOR_LASER_RED, "High Laser - Crouch Under"),
-        (210.0, 0.7, COLOR_LASER_CYAN, "Low Laser - Jump Over"),
-        (222.0, 1.5, COLOR_LASER_RED, "Mid Laser - Timing Dodge")
-    ]
-
-    for pz, py, color_rgb, desc in laser_data:
+    for pz, py, color_rgb, desc in LASER_BEAMS:
+        # Left side emitter box
         glPushMatrix()
         glTranslatef(14.7, py, pz)
         draw_box(0.6, 0.8, 0.8, color_top=(0.3, 0.3, 0.35), color_side=(0.2, 0.2, 0.25))
@@ -717,6 +728,7 @@ def draw_laser_emitters():
         draw_box(0.1, 0.4, 0.4, color_top=color_rgb, color_side=color_rgb)
         glPopMatrix()
 
+        # Right side emitter box
         glPushMatrix()
         glTranslatef(25.3, py, pz)
         draw_box(0.6, 0.8, 0.8, color_top=(0.3, 0.3, 0.35), color_side=(0.2, 0.2, 0.25))
@@ -724,49 +736,62 @@ def draw_laser_emitters():
         draw_box(0.1, 0.4, 0.4, color_top=color_rgb, color_side=color_rgb)
         glPopMatrix()
 
+        # Outer thick glowing red beam line
         glLineWidth(6.0)
         glColor3f(*color_rgb)
         glBegin(GL_LINES)
         glVertex3f(15.0, py, pz); glVertex3f(25.0, py, pz)
         glEnd()
 
+        # Inner bright white core line
         glLineWidth(2.0)
         glColor3f(1.0, 1.0, 1.0)
         glBegin(GL_LINES)
         glVertex3f(15.0, py, pz); glVertex3f(25.0, py, pz)
         glEnd()
 
+# -----------------------------------------------------------------------------
+# Moving Walls Constants (Section 5, X: 64.4 -> 75.6, Z: 240 -> 300)
+# Wall Pair data: (z_center, phase_multiplier)
+#   phase_multiplier = 1.0 means same phase as offset; -1.0 means inverted phase
+# -----------------------------------------------------------------------------
+MOVING_WALL_PAIRS = [
+    (260.0,  1.0),   # Wall Pair 1: same phase
+    (275.0, -1.0),   # Wall Pair 2: inverted phase (closes when Pair 1 opens)
+    (290.0,  1.0),   # Wall Pair 3: same phase as Pair 1
+]
+MOVING_WALL_CX = 70.0      # corridor centre X
+MOVING_WALL_BLOCK_W = 3.0  # width of each wall block
+MOVING_WALL_REST_L = 65.5  # left block rest X
+MOVING_WALL_REST_R = 74.5  # right block rest X
+
 def draw_moving_walls():
     """
-    Draws Section 5 (X: 70, Z: 240 -> 300): Shifting wall blocks with hazard trims.
+    Draws Section 5 (X: 64.4 -> 75.6, Z: 240 -> 300): 3 shifting wall pairs
+    with prominent hazard caution stripe edges.
     """
-    glPushMatrix()
-    glTranslatef(65.5 + moving_walls_offset, 3.0, 265.0)
-    draw_box(3.0, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
-    glTranslatef(1.4, 0.0, 0.0)
-    draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
-    glPopMatrix()
+    for wz, phase in MOVING_WALL_PAIRS:
+        offset = moving_walls_offset * phase
 
-    glPushMatrix()
-    glTranslatef(74.5 - moving_walls_offset, 3.0, 265.0)
-    draw_box(3.0, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
-    glTranslatef(-1.4, 0.0, 0.0)
-    draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
-    glPopMatrix()
+        # Left crushing wall block
+        left_x = MOVING_WALL_REST_L + offset
+        glPushMatrix()
+        glTranslatef(left_x, 3.0, wz)
+        draw_box(MOVING_WALL_BLOCK_W, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
+        # Hazard caution stripe on the crushing inner edge (right side of left block)
+        glTranslatef(MOVING_WALL_BLOCK_W / 2.0 - 0.1, 0.0, 0.0)
+        draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
+        glPopMatrix()
 
-    glPushMatrix()
-    glTranslatef(65.5 + (1.5 - moving_walls_offset), 3.0, 285.0)
-    draw_box(3.0, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
-    glTranslatef(1.4, 0.0, 0.0)
-    draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
-    glPopMatrix()
-
-    glPushMatrix()
-    glTranslatef(74.5 - (1.5 - moving_walls_offset), 3.0, 285.0)
-    draw_box(3.0, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
-    glTranslatef(-1.4, 0.0, 0.0)
-    draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
-    glPopMatrix()
+        # Right crushing wall block
+        right_x = MOVING_WALL_REST_R - offset
+        glPushMatrix()
+        glTranslatef(right_x, 3.0, wz)
+        draw_box(MOVING_WALL_BLOCK_W, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
+        # Hazard caution stripe on the crushing inner edge (left side of right block)
+        glTranslatef(-(MOVING_WALL_BLOCK_W / 2.0 - 0.1), 0.0, 0.0)
+        draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
+        glPopMatrix()
 
 def draw_exit_portal():
     """
@@ -875,7 +900,13 @@ def display():
     draw_exit_portal()
 
     # Render Character ("tung tung tung sahur")
-    draw_character()
+    # Blink/flash character during wall invincibility frames (visible every other 10 frames)
+    if wall_invincibility_timer > 0:
+        if (wall_invincibility_timer // 10) % 2 == 0:
+            draw_character()
+        # else: skip drawing = blink effect
+    else:
+        draw_character()
 
     # Determine Active Zone based on X, Z position
     px, pz = player_pos[0], player_pos[2]
@@ -957,6 +988,104 @@ def in_lava_pit():
     in_x  = LAVA_PIT_X_MIN <= px <= LAVA_PIT_X_MAX
     in_z  = LAVA_PIT_1_ZMIN <= pz <= LAVA_PIT_1_ZMAX
     return in_x and in_z and not on_stepping_box()
+
+def check_laser_collisions():
+    """
+    Checks whether the player collides with any of the 5 laser beams in Section 4 (X: 14.4->25.6, Z: 180->240).
+    The player can freely CROUCH or JUMP by their choice to dodge any laser beam.
+    If the player is crouching OR jumping, the laser is safely dodged.
+    Laser positions remain unchanged.
+    """
+    global player_pos, player_yaw, is_jumping, y_velocity
+    global consecutive_lava_falls, lava_alert_timer, hazard_alert_text, game_over
+
+    px, py, pz = player_pos[0], player_pos[1], player_pos[2]
+
+    # Only check inside Laser Gauntlet corridor (X: 14.4 -> 25.6, Z: 180 -> 240)
+    if not (14.4 <= px <= 25.6 and 180.0 <= pz <= 240.0):
+        return False
+
+    # Safe dodge if player is EITHER crouching OR jumping (or elevated off ground)
+    player_is_dodging = crouching or is_jumping or (py > ground_y + 0.15)
+
+    for lz, ly, color_rgb, desc in LASER_BEAMS:
+        # Z hit window (~0.7 units around laser beam)
+        if abs(pz - lz) <= 0.7:
+            # If the player is NOT dodging (neither crouching nor jumping), the laser hits!
+            if not player_is_dodging:
+                consecutive_lava_falls += 1
+                hazard_alert_text = "Hit by Laser! (Crouch 'C' or Jump 'SPACE' to dodge)"
+                lava_alert_timer = 180
+                if consecutive_lava_falls >= 3:
+                    game_over = True
+                # Respawn at Laser Gauntlet entrance
+                player_pos = [20.0, 1.0, 182.0]
+                player_yaw = 0.0
+                is_jumping = False
+                y_velocity = 0.0
+                return True
+    return False
+
+def check_moving_wall_collisions():
+    """
+    Checks whether the player is pinched/crushed between moving wall pairs in Zone 5.
+    For each wall pair, calculates the dynamic gap. If the player's X falls outside the
+    safe open gap between the left and right walls, a pinch/crush hit occurs.
+    - Grants 60 invincibility frames after a hit (blink effect).
+    - Tracks consecutive_wall_hits; 3 consecutive hits respawns at Zone 5 entry.
+    - Feeds into global hazard strike / game_over system.
+    """
+    global player_pos, player_yaw, is_jumping, y_velocity
+    global consecutive_lava_falls, lava_alert_timer, hazard_alert_text, game_over
+    global consecutive_wall_hits, wall_invincibility_timer
+
+    # Skip if invincibility frames are active (just got hit)
+    if wall_invincibility_timer > 0:
+        return False
+
+    px, pz = player_pos[0], player_pos[2]
+
+    # Only check inside Moving Walls corridor (X: 64.4 -> 75.6, Z: 240 -> 300)
+    if not (64.4 <= px <= 75.6 and 240.0 <= pz <= 300.0):
+        # Safely crossed past all walls — reset consecutive wall hits
+        if pz > 298.0 and consecutive_wall_hits > 0:
+            consecutive_wall_hits = 0
+        return False
+
+    for wz, phase in MOVING_WALL_PAIRS:
+        # Z-span check: player within ~4.0 units of wall pair center (each wall block is 8.0 deep)
+        if abs(pz - wz) < 4.0:
+            offset = moving_walls_offset * phase
+
+            # Calculate dynamic wall edge positions
+            left_inner_edge = (MOVING_WALL_REST_L + offset) + MOVING_WALL_BLOCK_W / 2.0
+            right_inner_edge = (MOVING_WALL_REST_R - offset) - MOVING_WALL_BLOCK_W / 2.0
+
+            # Player is crushed if their X position overlaps with either wall block
+            if px <= left_inner_edge or px >= right_inner_edge:
+                # --- CRUSH HIT ---
+                consecutive_wall_hits += 1
+                consecutive_lava_falls += 1
+                hazard_alert_text = "Crushed by Moving Walls!"
+                lava_alert_timer = 180
+                wall_invincibility_timer = 60  # ~1 second of invincibility blink
+
+                if consecutive_lava_falls >= 3:
+                    game_over = True
+
+                if consecutive_wall_hits >= 3:
+                    # 3 consecutive wall hits: respawn at Zone 5 entry
+                    player_pos = [70.0, 1.0, 245.0]
+                    player_yaw = 0.0
+                    consecutive_wall_hits = 0
+                else:
+                    # Push player back to corridor centre to escape the pinch
+                    player_pos[0] = MOVING_WALL_CX
+
+                is_jumping = False
+                y_velocity = 0.0
+                return True
+    return False
 
 def check_disappearing_floor():
     """
@@ -1046,6 +1175,12 @@ def update_player_physics():
     # --- Check Disappearing Floor Hazard Collision ---
     check_disappearing_floor()
 
+    # --- Check Laser Beam Hazard Collision ---
+    check_laser_collisions()
+
+    # --- Check Moving Wall Pinch/Crush Collision ---
+    check_moving_wall_collisions()
+
     # Tick alert display timer
     if lava_alert_timer > 0:
         lava_alert_timer -= 1
@@ -1056,6 +1191,7 @@ def idle():
     Uses strictly allowlisted GLUT callbacks (glutDisplayFunc, glutIdleFunc, glutKeyboardFunc, glutSpecialFunc, glutMouseFunc).
     """
     global moving_walls_offset, moving_walls_dir, platform_timer, disappearing_tiles_active
+    global wall_invincibility_timer
 
     if game_paused or game_over:
         glutPostRedisplay()
@@ -1063,8 +1199,12 @@ def idle():
 
     update_player_physics()
 
+    # Tick wall invincibility blink timer
+    if wall_invincibility_timer > 0:
+        wall_invincibility_timer -= 1
+
     if anim_moving_walls:
-        moving_walls_offset += 0.02 * moving_walls_dir
+        moving_walls_offset += 0.05 * moving_walls_dir
         if moving_walls_offset > 1.8 or moving_walls_offset < 0.0:
             moving_walls_dir *= -1.0
 
@@ -1089,6 +1229,7 @@ def keyboard_listener(key, x, y):
     global player_pos, player_yaw, crouching, first_person, anim_moving_walls, anim_disappearing_floor
     global is_jumping, y_velocity, game_paused
     global consecutive_lava_falls, lava_alert_timer, game_over
+    global consecutive_wall_hits, wall_invincibility_timer
 
     try:
         ch = key.decode('utf-8').lower()
@@ -1151,6 +1292,8 @@ def keyboard_listener(key, x, y):
         consecutive_lava_falls = 0
         lava_alert_timer = 0
         hazard_alert_text = "Fell into the lava!"
+        consecutive_wall_hits = 0
+        wall_invincibility_timer = 0
         game_over = False
 
     # ESC Key to Exit
