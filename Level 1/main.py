@@ -76,9 +76,10 @@ anim_disappearing_floor = True
 # Game Pause State
 game_paused = False
 
-# Lava Pit 3-Strike Tracking
+# Lava Pit & Hazard 3-Strike Tracking
 consecutive_lava_falls = 0
-lava_alert_timer = 0           # frames to show lava alert message
+lava_alert_timer = 0           # frames to show alert message
+hazard_alert_text = "Fell into the lava!"
 game_over = False
 
 # -----------------------------------------------------------------------------
@@ -514,6 +515,44 @@ def draw_hazard_zones():
             glPopMatrix()
 
     # -----------------------------------------------------------------
+    # 2B. 3D VOLCANIC LAVA SPIKES
+    # -----------------------------------------------------------------
+    def draw_lava_spike(x, y, z, base_w=0.35, height=1.5):
+        """
+        Renders a sharp 3D obsidian/magma spike rising from the lava.
+        """
+        glPushMatrix()
+        glTranslatef(x, y, z)
+        c_base = (0.16, 0.12, 0.14)
+        c_tip  = (1.00, 0.40, 0.00)
+        glBegin(GL_TRIANGLES)
+        # Front face
+        glColor3f(*c_base); glVertex3f(-base_w, 0.0,  base_w)
+        glColor3f(*c_base); glVertex3f( base_w, 0.0,  base_w)
+        glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
+        # Right face
+        glColor3f(*c_base); glVertex3f( base_w, 0.0,  base_w)
+        glColor3f(*c_base); glVertex3f( base_w, 0.0, -base_w)
+        glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
+        # Back face
+        glColor3f(*c_base); glVertex3f( base_w, 0.0, -base_w)
+        glColor3f(*c_base); glVertex3f(-base_w, 0.0, -base_w)
+        glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
+        # Left face
+        glColor3f(*c_base); glVertex3f(-base_w, 0.0, -base_w)
+        glColor3f(*c_base); glVertex3f(-base_w, 0.0,  base_w)
+        glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
+        glEnd()
+        glPopMatrix()
+
+    # Clusters of sharp lava spikes sticking up throughout the lava pit
+    for z_spk in range(int(ZSTART) + 3, int(ZEND) - 3, 4):
+        draw_lava_spike(CX - 4.2, 0.1, float(z_spk),        0.40, 1.8)
+        draw_lava_spike(CX - 2.5, 0.1, float(z_spk) + 1.5,  0.30, 1.4)
+        draw_lava_spike(CX + 2.5, 0.1, float(z_spk) + 0.8,  0.32, 1.5)
+        draw_lava_spike(CX + 4.2, 0.1, float(z_spk) + 2.2,  0.42, 1.9)
+
+    # -----------------------------------------------------------------
     # 3. BASALT SIDE WALL LEDGES WITH MAGMA SEAMS
     # -----------------------------------------------------------------
     for z_side in range(int(ZSTART), int(ZEND), 6):
@@ -612,34 +651,38 @@ def draw_hazard_zones():
         draw_box(CXHW * 2, 0.04, 0.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.6, 0.5, 0.0))
         glPopMatrix()
 
+# -----------------------------------------------------------------------------
+# Disappearing Platform Chamber Constants & Rendering
+# -----------------------------------------------------------------------------
+DISAPPEARING_TILE_COORDS = [
+    (-43.5, 138.0, 0), (-40.0, 138.0, 1), (-36.5, 138.0, 2),
+    (-43.5, 146.0, 3), (-40.0, 146.0, 4), (-36.5, 146.0, 5),
+    (-43.5, 154.0, 0), (-40.0, 154.0, 2), (-36.5, 154.0, 4),
+    (-43.5, 162.0, 1), (-40.0, 162.0, 3), (-36.5, 162.0, 5)
+]
+
+TILE_COLORS = [
+    (0.95, 0.45, 0.05), (0.05, 0.85, 0.95), (0.15, 0.90, 0.35),
+    (0.90, 0.15, 0.90), (0.95, 0.85, 0.10), (0.10, 0.55, 0.95)
+]
+
 def draw_disappearing_platforms():
     """
     Draws Section 3 (X: -40, Z: 120 -> 180): Deep abyss gap bridged by color-coded platform tiles.
+    Uses module-level DISAPPEARING_TILE_COORDS and TILE_COLORS.
     """
     glPushMatrix()
     glTranslatef(-40.0, -4.0, 150.0)
     draw_box(17.0, 0.2, 32.0, color_top=(0.02, 0.01, 0.05), color_side=(0.01, 0.0, 0.02))
     glPopMatrix()
 
-    platform_coords = [
-        (-43.5, 138.0, 0), (-40.0, 138.0, 1), (-36.5, 138.0, 2),
-        (-43.5, 146.0, 3), (-40.0, 146.0, 4), (-36.5, 146.0, 5),
-        (-43.5, 154.0, 0), (-40.0, 154.0, 2), (-36.5, 154.0, 4),
-        (-43.5, 162.0, 1), (-40.0, 162.0, 3), (-36.5, 162.0, 5)
-    ]
-
-    tile_colors = [
-        (0.95, 0.45, 0.05), (0.05, 0.85, 0.95), (0.15, 0.90, 0.35),
-        (0.90, 0.15, 0.90), (0.95, 0.85, 0.10), (0.10, 0.55, 0.95)
-    ]
-
-    for px, pz, color_idx in platform_coords:
+    for px, pz, color_idx in DISAPPEARING_TILE_COORDS:
         is_active = disappearing_tiles_active[color_idx]
         glPushMatrix()
         glTranslatef(px, 0.0, pz)
         
         if is_active:
-            draw_box(2.8, 0.4, 4.0, color_top=tile_colors[color_idx], color_side=(0.15, 0.15, 0.18))
+            draw_box(2.8, 0.4, 4.0, color_top=TILE_COLORS[color_idx], color_side=(0.15, 0.15, 0.18))
             glPushMatrix()
             glTranslatef(0.0, -0.25, 0.0)
             draw_box(2.4, 0.1, 3.6, color_top=(1.0, 1.0, 1.0), color_side=(0.5, 0.5, 0.5))
@@ -863,11 +906,11 @@ def display():
     draw_text(15, WINDOW_HEIGHT - 80, f"Pos: X={player_pos[0]:.1f}, Y={player_pos[1]:.1f}, Z={player_pos[2]:.1f} | Yaw={player_yaw:.0f} deg")
     draw_text(15, WINDOW_HEIGHT - 105, f"Camera: {'1st Person POV (V to switch)' if first_person else '3rd Person Follow (V to switch)'}")
     if game_over:
-        draw_text(15, WINDOW_HEIGHT - 130, f"GAME OVER! 3 consecutive lava falls. Press 'R' to restart.")
+        draw_text(15, WINDOW_HEIGHT - 130, f"GAME OVER! 3 Hazard Strikes reached. Press 'R' to restart.")
     elif game_paused:
         draw_text(15, WINDOW_HEIGHT - 130, f"State: GAME PAUSED (Press 'P' to Resume)")
     elif lava_alert_timer > 0:
-        draw_text(15, WINDOW_HEIGHT - 130, f"Lava Strikes: {consecutive_lava_falls}/3 - Fell into the lava!")
+        draw_text(15, WINDOW_HEIGHT - 130, f"Hazard Strikes: {consecutive_lava_falls}/3 - {hazard_alert_text}")
     else:
         draw_text(15, WINDOW_HEIGHT - 130, f"State: {'CROUCHING (Hitbox Height = 0.8)' if crouching else 'STANDING (Hitbox Height = 1.6)'}")
     draw_text(15, 20, "Controls: WASD/Arrows: Move/Turn | SPACE: Jump | C/Ctrl: Crouch | V: Camera | P: Pause | R: Reset")
@@ -915,13 +958,44 @@ def in_lava_pit():
     in_z  = LAVA_PIT_1_ZMIN <= pz <= LAVA_PIT_1_ZMAX
     return in_x and in_z and not on_stepping_box()
 
+def check_disappearing_floor():
+    """
+    Checks whether the player is stepping on an INACTIVE disappearing tile (X/Z bounds).
+    If inactive and player is not jumping high, treats as falling through:
+    increments hazard_strikes, displays alert, and respawns near chamber entrance [-40.0, 1.0, 122.0].
+    Shared 3-strike fail condition with lava hazard.
+    """
+    global player_pos, player_yaw, is_jumping, y_velocity
+    global consecutive_lava_falls, lava_alert_timer, hazard_alert_text, game_over
+
+    px, py, pz = player_pos[0], player_pos[1], player_pos[2]
+
+    # Tile bounds: half-width 1.4, half-depth 2.0 around center
+    for tile_x, tile_z, color_idx in DISAPPEARING_TILE_COORDS:
+        if (tile_x - 1.4) <= px <= (tile_x + 1.4) and (tile_z - 2.0) <= pz <= (tile_z + 2.0):
+            is_active = disappearing_tiles_active[color_idx]
+            # If the tile is INACTIVE and player is at floor level (not jumping high above)
+            if not is_active and py <= ground_y + 0.15:
+                consecutive_lava_falls += 1
+                hazard_alert_text = "The floor vanished beneath you!"
+                lava_alert_timer = 180
+                if consecutive_lava_falls >= 3:
+                    game_over = True
+                # Respawn near chamber entrance
+                player_pos = [-40.0, 1.0, 122.0]
+                player_yaw = 0.0
+                is_jumping = False
+                y_velocity = 0.0
+                return True
+    return False
+
 def update_player_physics():
     """
     Handles player jumping physics, gravity update, floor/stepping-box collision,
-    and lava fall 3-strike detection.
+    lava fall 3-strike detection, and disappearing floor hazard collision.
     """
     global player_pos, is_jumping, y_velocity
-    global consecutive_lava_falls, lava_alert_timer, game_over
+    global consecutive_lava_falls, lava_alert_timer, hazard_alert_text, game_over
 
     if is_jumping:
         player_pos[1] += y_velocity
@@ -941,6 +1015,7 @@ def update_player_physics():
             if in_lava_pit():
                 # Fell into lava — penalise
                 consecutive_lava_falls += 1
+                hazard_alert_text = "Fell into the lava!"
                 lava_alert_timer = 180          # show alert ~3 s at 60 fps
                 if consecutive_lava_falls >= 3:
                     game_over = True
@@ -958,6 +1033,7 @@ def update_player_physics():
         # Detect walking off platform into lava while not jumping
         elif in_lava_pit() and player_pos[1] <= ground_y + 0.05:
             consecutive_lava_falls += 1
+            hazard_alert_text = "Fell into the lava!"
             lava_alert_timer = 180
             if consecutive_lava_falls >= 3:
                 game_over = True
@@ -966,6 +1042,9 @@ def update_player_physics():
         # Successful crossing past both pits — reset strike counter
         elif player_pos[2] > LAVA_PIT_1_ZMAX and consecutive_lava_falls > 0:
             consecutive_lava_falls = 0
+
+    # --- Check Disappearing Floor Hazard Collision ---
+    check_disappearing_floor()
 
     # Tick alert display timer
     if lava_alert_timer > 0:
@@ -1071,6 +1150,7 @@ def keyboard_listener(key, x, y):
         is_jumping = False
         consecutive_lava_falls = 0
         lava_alert_timer = 0
+        hazard_alert_text = "Fell into the lava!"
         game_over = False
 
     # ESC Key to Exit
