@@ -1321,6 +1321,68 @@ def idle():
 # -----------------------------------------------------------------------------
 # Input Event Handlers (Strictly Allowlisted Lab Callbacks)
 # -----------------------------------------------------------------------------
+def is_valid_walkway_position(x, z):
+    """
+    Returns True if (x, z) is inside any valid playable maze corridor segment.
+    Prevents player from phasing through walls into outside void space.
+    """
+    # 1. Start Hub (X: -5.5 -> +5.5, Z: 0.0 -> 54.4)
+    if -5.5 <= x <= 5.5 and 0.0 <= z <= 54.4:
+        return True
+
+    # 2. Junction A (X: -5.5 -> 45.0, Z: 54.8 -> 65.2)
+    if -5.5 <= x <= 45.0 and 54.8 <= z <= 65.2:
+        return True
+
+    # 3. Hazard Lava Pit Corridor (X: 34.8 -> 45.2, Z: 54.8 -> 125.2)
+    if 34.8 <= x <= 45.2 and 54.8 <= z <= 125.2:
+        return True
+
+    # 4. Junction B (X: -45.2 -> 45.2, Z: 114.8 -> 125.2)
+    if -45.2 <= x <= 45.2 and 114.8 <= z <= 125.2:
+        return True
+
+    # 5. Disappearing Floor Chamber (X: -45.2 -> -34.8, Z: 114.8 -> 185.2)
+    if -45.2 <= x <= -34.8 and 114.8 <= z <= 185.2:
+        return True
+
+    # 6. Junction C (X: -45.2 -> 25.2, Z: 174.8 -> 185.2)
+    if -45.2 <= x <= 25.2 and 174.8 <= z <= 185.2:
+        return True
+
+    # 7. Laser Gauntlet Corridor (X: 14.8 -> 25.2, Z: 174.8 -> 245.2)
+    if 14.8 <= x <= 25.2 and 174.8 <= z <= 245.2:
+        return True
+
+    # 8. Junction D (X: 14.8 -> 75.2, Z: 234.8 -> 245.2)
+    if 14.8 <= x <= 75.2 and 234.8 <= z <= 245.2:
+        return True
+
+    # 9. Moving Walls & Exit Chamber (X: 64.8 -> 75.2, Z: 234.8 -> 339.6)
+    if 64.8 <= x <= 75.2 and 234.8 <= z <= 339.6:
+        return True
+
+    return False
+
+def try_move_player(dx, dz):
+    """
+    Attempts to move player by (dx, dz) with smooth wall sliding response.
+    Prevents player from phasing through any wall.
+    """
+    new_x = player_pos[0] + dx
+    new_z = player_pos[2] + dz
+
+    # 1. Try full movement
+    if is_valid_walkway_position(new_x, new_z):
+        player_pos[0] = new_x
+        player_pos[2] = new_z
+    # 2. Slide along X axis only
+    elif is_valid_walkway_position(new_x, player_pos[2]):
+        player_pos[0] = new_x
+    # 3. Slide along Z axis only
+    elif is_valid_walkway_position(player_pos[0], new_z):
+        player_pos[2] = new_z
+
 def keyboard_listener(key, x, y):
     """
     Handles WASD, Spacebar, C, V, P, M, T, R, and ESC keys (glutKeyboardFunc).
@@ -1363,19 +1425,15 @@ def keyboard_listener(key, x, y):
 
     # Movement: W (Forward), S (Backward) along facing angle
     if ch == 'w':
-        player_pos[0] += math.sin(rad) * player_speed
-        player_pos[2] += math.cos(rad) * player_speed
+        try_move_player(math.sin(rad) * player_speed, math.cos(rad) * player_speed)
     elif ch == 's':
-        player_pos[0] -= math.sin(rad) * player_speed
-        player_pos[2] -= math.cos(rad) * player_speed
+        try_move_player(-math.sin(rad) * player_speed, -math.cos(rad) * player_speed)
 
     # Strafe / Turn: A (Strafe Left / Turn), D (Strafe Right / Turn)
     elif ch == 'a':
-        player_pos[0] += math.sin(rad + math.pi/2.0) * player_speed
-        player_pos[2] += math.cos(rad + math.pi/2.0) * player_speed
+        try_move_player(math.sin(rad + math.pi/2.0) * player_speed, math.cos(rad + math.pi/2.0) * player_speed)
     elif ch == 'd':
-        player_pos[0] += math.sin(rad - math.pi/2.0) * player_speed
-        player_pos[2] += math.cos(rad - math.pi/2.0) * player_speed
+        try_move_player(math.sin(rad - math.pi/2.0) * player_speed, math.cos(rad - math.pi/2.0) * player_speed)
 
     # Crouch Toggle: C Key
     elif ch == 'c':
@@ -1430,11 +1488,9 @@ def special_key_listener(key, x, y):
     rad = math.radians(player_yaw)
 
     if key == GLUT_KEY_UP:
-        player_pos[0] += math.sin(rad) * player_speed
-        player_pos[2] += math.cos(rad) * player_speed
+        try_move_player(math.sin(rad) * player_speed, math.cos(rad) * player_speed)
     elif key == GLUT_KEY_DOWN:
-        player_pos[0] -= math.sin(rad) * player_speed
-        player_pos[2] -= math.cos(rad) * player_speed
+        try_move_player(-math.sin(rad) * player_speed, -math.cos(rad) * player_speed)
     elif key == GLUT_KEY_LEFT:
         player_yaw = (player_yaw + 4.5) % 360.0
     elif key == GLUT_KEY_RIGHT:
