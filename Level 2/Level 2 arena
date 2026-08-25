@@ -6,52 +6,43 @@ Main Character: "tung tung tung sahur"
 Enemy Character: Custom 3D Zombie (exact design from zombie.py)
 Course: CSE423 Computer Graphics Project (Strict Lab 1, 1.2, 2, 3 Functions Only)
 
-Allowed Functions Used:
-- GLUT: glutInit, glutInitDisplayMode, glutInitWindowSize, glutInitWindowPosition,
-        glutCreateWindow, glutDisplayFunc, glutIdleFunc, glutKeyboardFunc,
-        glutSpecialFunc, glutMouseFunc, glutMotionFunc, glutPostRedisplay,
-        glutSwapBuffers, glutSolidCube, glutBitmapCharacter
-- GL:   glClearColor, glClear, glEnable, glDisable, glMatrixMode, glLoadIdentity,
-        glPushMatrix, glPopMatrix, glTranslatef, glRotatef, glScalef, glColor3f,
-        glPointSize, glLineWidth, glBegin, glEnd, glVertex2f, glVertex3f, glRasterPos2f
-- GLU:  gluPerspective, gluLookAt, gluOrtho2D, gluNewQuadric, gluCylinder, gluSphere
-
 Features in this File:
-1. Large Square 3D Arena:
-   - Clean dark slate floor (no grids) and dark crimson obsidian walls (no roof lights)
-   - 3D Brown wooden crate piles acting as solid physical and line-of-sight obstacles
-2. Full Crate Obstacle & Line-of-Sight (LOS) Physics:
-   - Player and Zombies cannot walk through crates (must navigate around them)
-   - Player and Zombies cannot see or shoot through crates (raycast line-of-sight occlusion)
-   - Grenades explode on crate contact, and crate blocks the explosion blast
-3. Player Character & Controls:
-   - 3D "tung tung tung sahur" model with unaltered original palette (unaffected by cheat mode)
-   - WASD movement with smooth sliding around crate obstacles
-   - Crouch on 'CTRL' Key: Drops camera & hitbox to 0.8 units (identical to Arena 1)
-   - Cheat Mode on 'C' Key: Makes player invincible with unlimited health
-   - Camera direction moves when LMB is held down and dragged (Arena 3 style)
-   - 1st Person POV <-> 3rd Person Follow Camera (toggle with V or Right Mouse Click)
-4. Dynamic Red Health Bar System:
-   - Visual Red HUD Health Bar that smoothly decreases as player HP drops (protected by Cheat Mode)
+1. Level 3 Camera Movement System:
+   - Smooth continuous mouse aiming (yaw & pitch tracking via cursor)
+   - Consistent 3D look-at vector in both 1st Person POV and 3rd Person Follow
+   - Right Mouse Click / 'V' key toggles camera POV
+   - 'J' / 'L' keys for manual Yaw turning, 'I' / 'K' keys for Pitch looking
+2. Manual LMB Shooting (No Auto-Shooting):
+   - Left Mouse Click (LMB) launches Grenade / Catnip towards aim direction
+   - Aiming at a zombie turns crosshair red as a target indicator
+3. Level 3 Health Bar & HUD:
+   - 9 Cat Lives (MAX_PLAYER_HITS = 9) with green health bar at bottom-left corner
+   - 'CHEAT MODE ON' bold banner at top-right corner when cheat mode is enabled
+4. Full Crate Obstacle & Line-of-Sight (LOS) Physics:
+   - Player and Zombies cannot walk through crates (smooth sliding around obstacles)
+   - Player and Zombies cannot see or shoot through crates (LOS raycasting)
+   - Grenades explode on crate contact, and crates block blast penetration
 5. Slow Grenade Launcher (Unlimited Ammo):
-   - Gun functions as a Grenade Launcher firing visibly slow projectile nades along a clear arc
-   - One-shots zombies upon direct hit or unobstructed blast impact
-   - When a zombie is hit, it turns bright ORANGE, and on death leaves a lingering RED GLOW
+   - Arced slow-motion grenade projectiles with one-shot kills on zombies
+   - Zombies turn bright ORANGE on hit and leave a lingering RED GLOW aura on death
 6. Glowing Blue Catnip Pickup (Unlocked after 10 Zombies Defeated):
-   - After defeating all 10 zombies, a glowing blue 'Catnip' spawns on the ground
-   - Walking into the Catnip picks it up
-   - Pressing 'F' switches active weapon between Gun (Grenade Launcher) and Catnip!
+   - Spawns at arena center after defeating 10 zombies
+   - Pressing 'F' toggles active weapon between Gun (Grenade Launcher) and Catnip
+7. Pause & Controls:
+   - Pressing 'P' pauses / unpauses the game
+   - Pressing 'C' toggles Cheat Mode (unlimited lives & invulnerability)
+   - Pressing 'CTRL' toggles crouching (drops camera eye level to 0.8)
 
 Controls:
 - W / S                 : Move Forward / Backward
 - A / D                 : Strafe Left / Right
-- Hold LMB & Drag       : Rotate Camera Direction (Yaw & Pitch - Arena 3 style)
+- Mouse Movement        : Aim Camera Direction (Smooth Look-At - Level 3 style)
+- Left Mouse Click (LMB): Shoot Grenade Launcher / Catnip
+- Right Mouse Click / V : Toggle Camera View (1st Person POV <-> 3rd Person Follow)
 - Spacebar              : Jump
 - Left / Right Ctrl     : Crouch (drops camera & hitbox to 0.8)
-- C                     : Toggle Cheat Mode (Invincibility & Unlimited Health)
+- C                     : Toggle Cheat Mode (9 Lives Invulnerability)
 - F                     : Switch Active Weapon (Gun <-> Catnip)
-- Look at Zombie        : Automatic Weapon Attack (blocked if hidden behind crates)
-- V / Right Mouse Click : Toggle Camera View (1st Person POV <-> 3rd Person Follow)
 - P                     : Toggle Game Pause On/Off
 - R                     : Reset Arena / Restart
 - ESC                   : Exit Game
@@ -61,6 +52,7 @@ Controls:
 import math
 import random
 import sys
+import ctypes
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
@@ -68,20 +60,21 @@ from OpenGL.GLU import *
 # -----------------------------------------------------------------------------
 # Global Configurations & Window Settings
 # -----------------------------------------------------------------------------
-WINDOW_WIDTH = 1000
-WINDOW_HEIGHT = 750
-WINDOW_TITLE = b"9 Lives - Level 2 Arena (100% CSE423 Labs Compliant)"
+WIN_W = 1000
+WIN_H = 750
+WINDOW_TITLE = b"9 Lives - Level 2 Arena: Combat & Tactical Cover"
 
 ARENA_SIZE = 60.0  # Half-width of arena (bounds: -60 to +60 in X and Z)
 WALL_HEIGHT = 9.0  # Height of perimeter walls
 
 # -----------------------------------------------------------------------------
-# Player State & Physics
+# Player State & Physics (Level 3 System)
 # -----------------------------------------------------------------------------
 player_pos = [0.0, 1.0, -35.0]  # Start near south side of arena
 player_yaw = 0.0                 # Facing angle in degrees (0 = along +Z)
 player_pitch = 0.0               # Pitch angle (up/down)
-player_speed = 0.45              # Movement speed (identical to Level 1)
+BASE_PLAYER_SPEED = 2
+player_speed = 2
 crouching = False
 eye_height = 1.6
 
@@ -92,21 +85,21 @@ gravity = -0.016
 jump_strength = 0.36
 ground_y = 1.0
 
-# Player Health & Cheat Mode
-player_max_hp = 100
-player_hp = 100
+# 9 Lives Health System (Level 3 Style)
+MAX_PLAYER_HITS = 9
+player_hits_left = 9
 player_invulnerable_timer = 0
 cheat_mode = False               # Toggled by 'C' key
 is_game_over = False
 is_level_cleared = False
 is_paused = False
 
-# Mouse Drag Tracking (LMB Drag exactly like Arena 3)
-mouse_down = False
-last_x = 0
-last_y = 0
+# Mouse Look Tracking (Level 3 Cursor System)
+last_mouse_x = 0
+last_mouse_y = 0
+mouse_initialized = False
 
-# Camera Settings: 1st Person (True) vs 3rd Person Follow (False)
+# Camera Settings
 first_person = False
 cam_dist = 6.5
 cam_height = 3.8
@@ -184,7 +177,6 @@ CRATE_RAW_DATA = [
     {"pos": [41.2, 2.8, -1.5], "size": 2.2, "angle": 5.0}
 ]
 
-# Precomputed AABB Bounding Boxes for fast collision and raycasting
 CRATE_BOXES = []
 for c in CRATE_RAW_DATA:
     cx, cy, cz = c["pos"]
@@ -206,7 +198,6 @@ for c in CRATE_RAW_DATA:
 # -----------------------------------------------------------------------------
 # Color Palettes
 # -----------------------------------------------------------------------------
-# Arena Environment
 COLOR_FLOOR = (0.08, 0.09, 0.13)         # Solid Dark Slate Floor
 COLOR_FLOOR_SIDE = (0.04, 0.04, 0.06)    # Floor Base Shading
 COLOR_WALL = (0.24, 0.13, 0.16)          # Dark Crimson Obsidian Wall
@@ -215,11 +206,9 @@ COLOR_WALL_TRIM = (0.45, 0.15, 0.20)     # Wall Top Trim Accent
 COLOR_PILLAR = (0.12, 0.12, 0.15)        # Dark Charcoal Pillars
 COLOR_PILLAR_GLOW = (0.9, 0.2, 0.2)      # Glowing Crimson Pillar Beacon
 
-# Crate Decorations Palette
 COLOR_CRATE_WOOD = (0.46, 0.28, 0.16)    # Warm Brown Wooden Planks
 COLOR_CRATE_TRIM = (0.28, 0.16, 0.09)    # Dark Wood Border Trims
 
-# Gun & Grenade
 COLOR_PEDESTAL = (0.15, 0.18, 0.25)
 COLOR_PEDESTAL_RING = (0.0, 0.85, 1.0)   # Glowing Cyan Beacon Ring
 COLOR_GUN_BODY = (0.20, 0.22, 0.25)      # Dark Steel Gun
@@ -227,11 +216,10 @@ COLOR_GUN_ACCENT = (1.0, 0.60, 0.0)      # Neon Orange Barrel Accent
 COLOR_GRENADE = (0.18, 0.40, 0.20)       # Dark Military Green Nade
 COLOR_GRENADE_FUSE = (1.0, 0.45, 0.0)    # Glowing Orange Fuse Tip
 
-# Glowing Blue Catnip
 COLOR_CATNIP_BLUE = (0.0, 0.65, 1.0)     # Glowing Blue Catnip Herb
 COLOR_CATNIP_AURA = (0.2, 0.85, 1.0)     # Cyan-Blue Glow
 
-# Character Palette ("tung tung tung sahur" - Unaltered original colors)
+# Character Palette ("tung tung tung sahur")
 c_body = (222/255, 137/255, 34/255)
 c_dark = (117/255, 76/255, 18/255)
 c_goggle = (229/255, 230/255, 230/255)
@@ -244,23 +232,28 @@ c_z_eye_nose = (18/255, 18/255, 18/255)
 c_z_shirt = (0/255, 168/255, 222/255)
 c_z_pants = (36/255, 68/255, 184/255)
 c_z_shoes = (64/255, 64/255, 64/255)
-c_z_orange = (1.0, 0.50, 0.0)            # Bright Orange on hit
+c_z_orange = (1.0, 0.50, 0.0)
+
+# -----------------------------------------------------------------------------
+# Shared Quadric Object
+# -----------------------------------------------------------------------------
+_Q = None
+def Q():
+    global _Q
+    if _Q is None:
+        _Q = gluNewQuadric()
+    return _Q
 
 # -----------------------------------------------------------------------------
 # Collision & Line of Sight (LOS) Raycasting
 # -----------------------------------------------------------------------------
 def line_intersects_aabb_2d(p1x, p1z, p2x, p2z, min_x, max_x, min_z, max_z):
-    """
-    Slab-method 2D ray/segment intersection test against an AABB box.
-    Returns True if the line segment from P1 to P2 intersects the box.
-    """
     dx = p2x - p1x
     dz = p2z - p1z
 
     t_min = 0.0
     t_max = 1.0
 
-    # X-slab
     if abs(dx) < 1e-7:
         if p1x < min_x or p1x > max_x:
             return False
@@ -274,7 +267,6 @@ def line_intersects_aabb_2d(p1x, p1z, p2x, p2z, min_x, max_x, min_z, max_z):
         if t_min > t_max:
             return False
 
-    # Z-slab
     if abs(dz) < 1e-7:
         if p1z < min_z or p1z > max_z:
             return False
@@ -291,26 +283,18 @@ def line_intersects_aabb_2d(p1x, p1z, p2x, p2z, min_x, max_x, min_z, max_z):
     return t_min <= t_max and t_max >= 0.0 and t_min <= 1.0
 
 def is_line_of_sight_clear(p1x, p1z, p2x, p2z):
-    """
-    Returns True if the direct sightline between P1 and P2 is NOT blocked by any crate.
-    """
     for c in CRATE_BOXES:
         if line_intersects_aabb_2d(p1x, p1z, p2x, p2z, c['min_x'], c['max_x'], c['min_z'], c['max_z']):
             return False
     return True
 
 def resolve_entity_crate_collision(x, z, radius, y_height=1.0):
-    """
-    Prevents entities (Player / Zombies) from walking through crates.
-    Smoothly slides them outside the crate's perimeter.
-    """
     resolved_x, resolved_z = x, z
 
     for c in CRATE_BOXES:
         if y_height > c['max_y']:
-            continue  # Jumped over the crate
+            continue
 
-        # Closest point on AABB to circle center
         cx = max(c['min_x'], min(resolved_x, c['max_x']))
         cz = max(c['min_z'], min(resolved_z, c['max_z']))
 
@@ -321,7 +305,6 @@ def resolve_entity_crate_collision(x, z, radius, y_height=1.0):
         if dist_sq < radius * radius:
             dist = math.sqrt(dist_sq)
             if dist < 1e-5:
-                # Entity is centered directly inside, push to nearest face
                 dx1 = abs(resolved_x - c['min_x'])
                 dx2 = abs(resolved_x - c['max_x'])
                 dz1 = abs(resolved_z - c['min_z'])
@@ -339,55 +322,45 @@ def resolve_entity_crate_collision(x, z, radius, y_height=1.0):
     return resolved_x, resolved_z
 
 # -----------------------------------------------------------------------------
-# 3D Helper Primitives & Text Rendering
+# 3D Helper Primitives
 # -----------------------------------------------------------------------------
 def draw_box(sx, sy, sz, color_top=None, color_side=None):
-    """
-    Draws a solid box centered at origin with dimensions sx, sy, sz.
-    Strictly uses standard glBegin(GL_QUADS), glVertex3f, glEnd.
-    """
     hx, hy, hz = sx / 2.0, sy / 2.0, sz / 2.0
     glBegin(GL_QUADS)
 
-    # Top Face (Y+)
     if color_top:
         glColor3f(*color_top)
     glVertex3f(-hx, hy, hz); glVertex3f(hx, hy, hz); glVertex3f(hx, hy, -hz); glVertex3f(-hx, hy, -hz)
 
-    # Bottom Face (Y-)
     glVertex3f(-hx, -hy, -hz); glVertex3f(hx, -hy, -hz); glVertex3f(hx, -hy, hz); glVertex3f(-hx, -hy, hz)
 
-    # Front Face (Z+)
     if color_side:
         glColor3f(color_side[0] * 0.95, color_side[1] * 0.95, color_side[2] * 0.95)
     glVertex3f(-hx, -hy, hz); glVertex3f(hx, -hy, hz); glVertex3f(hx, hy, hz); glVertex3f(-hx, hy, hz)
 
-    # Back Face (Z-)
     if color_side:
         glColor3f(color_side[0] * 0.85, color_side[1] * 0.85, color_side[2] * 0.85)
     glVertex3f(-hx, hy, -hz); glVertex3f(hx, hy, -hz); glVertex3f(hx, -hy, -hz); glVertex3f(-hx, -hy, -hz)
 
-    # Left Face (X-)
     if color_side:
         glColor3f(color_side[0] * 0.80, color_side[1] * 0.80, color_side[2] * 0.80)
     glVertex3f(-hx, -hy, -hz); glVertex3f(-hx, -hy, hz); glVertex3f(-hx, hy, hz); glVertex3f(-hx, hy, -hz)
 
-    # Right Face (X+)
     if color_side:
         glColor3f(color_side[0] * 0.90, color_side[1] * 0.90, color_side[2] * 0.90)
     glVertex3f(hx, -hy, -hz); glVertex3f(hx, hy, -hz); glVertex3f(hx, hy, hz); glVertex3f(hx, -hy, hz)
 
     glEnd()
 
-def draw_text_2d(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18):
-    """
-    Renders 2D HUD text in screen coordinates using gluOrtho2D and glutBitmapCharacter.
-    """
+# -----------------------------------------------------------------------------
+# 2D HUD Rendering (Level 3 Style)
+# -----------------------------------------------------------------------------
+def draw_text(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18):
     glColor3f(*color)
     glMatrixMode(GL_PROJECTION)
     glPushMatrix()
     glLoadIdentity()
-    gluOrtho2D(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+    gluOrtho2D(0, WIN_W, 0, WIN_H)
 
     glMatrixMode(GL_MODELVIEW)
     glPushMatrix()
@@ -402,50 +375,38 @@ def draw_text_2d(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETI
     glPopMatrix()
     glMatrixMode(GL_MODELVIEW)
 
-def draw_hud_health_bar(x, y, width, height, current_hp, max_hp):
-    """
-    Renders a prominent Red-colored Health Bar that visually decreases as current_hp drops.
-    """
+def draw_text_bold(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18):
+    for dx in [-1.0, 0.0, 1.0]:
+        for dy in [-1.0, 0.0, 1.0]:
+            draw_text(x + dx, y + dy, text_str, color=color, font=font)
+
+def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(1.0, 1.0, 1.0)):
     glMatrixMode(GL_PROJECTION)
     glPushMatrix()
     glLoadIdentity()
-    gluOrtho2D(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+    gluOrtho2D(0, WIN_W, 0, WIN_H)
 
     glMatrixMode(GL_MODELVIEW)
     glPushMatrix()
     glLoadIdentity()
 
-    # 1. Dark Background Container
-    glColor3f(0.12, 0.12, 0.15)
-    glBegin(GL_QUADS)
-    glVertex2f(x, y)
-    glVertex2f(x + width, y)
-    glVertex2f(x + width, y + height)
-    glVertex2f(x, y + height)
-    glEnd()
-
-    # 2. Red Health Bar Fill (Decreases with current_hp)
-    hp_ratio = max(0.0, min(1.0, current_hp / float(max_hp)))
-    if hp_ratio > 0:
-        fill_width = (width - 4) * hp_ratio
-        glBegin(GL_QUADS)
-        glColor3f(0.95, 0.15, 0.15)
-        glVertex2f(x + 2, y + 2)
-        glVertex2f(x + 2 + fill_width, y + 2)
-        glColor3f(1.0, 0.35, 0.35)
-        glVertex2f(x + 2 + fill_width, y + height - 2)
-        glVertex2f(x + 2, y + height - 2)
-        glEnd()
-
-    # 3. Outer Border Outline
-    glColor3f(0.85, 0.85, 0.90)
-    glLineWidth(2.0)
     glBegin(GL_LINES)
-    glVertex2f(x, y); glVertex2f(x + width, y)
-    glVertex2f(x + width, y); glVertex2f(x + width, y + height)
-    glVertex2f(x + width, y + height); glVertex2f(x, y + height)
-    glVertex2f(x, y + height); glVertex2f(x, y)
+    glColor3f(*border_color)
+    glVertex2f(x, y); glVertex2f(x + w, y)
+    glVertex2f(x + w, y); glVertex2f(x + w, y + h)
+    glVertex2f(x + w, y + h); glVertex2f(x, y + h)
+    glVertex2f(x, y + h); glVertex2f(x, y)
     glEnd()
+
+    fill_w = max(0.0, min(1.0, fill_pct)) * (w - 2)
+    if fill_w > 0:
+        glBegin(GL_QUADS)
+        glColor3f(*fill_color)
+        glVertex2f(x + 1, y + 1)
+        glVertex2f(x + 1 + fill_w, y + 1)
+        glVertex2f(x + 1 + fill_w, y + h - 1)
+        glVertex2f(x + 1, y + h - 1)
+        glEnd()
 
     glPopMatrix()
     glMatrixMode(GL_PROJECTION)
@@ -453,37 +414,24 @@ def draw_hud_health_bar(x, y, width, height, current_hp, max_hp):
     glMatrixMode(GL_MODELVIEW)
 
 def draw_crosshair():
-    """
-    Renders a 2D aiming reticle at the center of the screen.
-    Turns glowing red when locked on to an unobstructed zombie target.
-    """
-    cx = WINDOW_WIDTH // 2
-    cy = WINDOW_HEIGHT // 2
-    size = 14
-
+    cx, cy = WIN_W // 2, WIN_H // 2
+    size = 10
     glMatrixMode(GL_PROJECTION)
     glPushMatrix()
     glLoadIdentity()
-    gluOrtho2D(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+    gluOrtho2D(0, WIN_W, 0, WIN_H)
 
     glMatrixMode(GL_MODELVIEW)
     glPushMatrix()
     glLoadIdentity()
 
-    if is_target_locked:
-        glColor3f(1.0, 0.2, 0.2)  # Target locked red
-        glLineWidth(3.0)
-    else:
-        glColor3f(0.0, 0.85, 1.0)  # Searching cyan
-        glLineWidth(2.0)
-
     glBegin(GL_LINES)
-    # Horizontal line
-    glVertex2f(cx - size, cy); glVertex2f(cx - 4, cy)
-    glVertex2f(cx + 4, cy); glVertex2f(cx + size, cy)
-    # Vertical line
-    glVertex2f(cx, cy - size); glVertex2f(cx, cy - 4)
-    glVertex2f(cx, cy + 4); glVertex2f(cx, cy + size)
+    if is_target_locked:
+        glColor3f(1.0, 0.2, 0.2)
+    else:
+        glColor3f(0.0, 0.85, 1.0)
+    glVertex2f(cx - size, cy); glVertex2f(cx + size, cy)
+    glVertex2f(cx, cy - size); glVertex2f(cx, cy + size)
     glEnd()
 
     glPopMatrix()
@@ -491,40 +439,80 @@ def draw_crosshair():
     glPopMatrix()
     glMatrixMode(GL_MODELVIEW)
 
+def draw_hud():
+    # 1. Main Character Health Bar at BOTTOM LEFT corner (Level 3 Style)
+    pw, ph = 220, 16
+    px, py = 25, 25
+    player_pct = player_hits_left / float(MAX_PLAYER_HITS)
+    draw_bar_2d(px, py, pw, ph, player_pct, (0.1, 0.9, 0.2), border_color=(0.9, 0.9, 0.9))
+    draw_text(px + pw + 12, py + 1, f"LIVES: {player_hits_left}/{MAX_PLAYER_HITS}", color=(0.1, 0.9, 0.2), font=GLUT_BITMAP_HELVETICA_18)
+
+    # 2. Cheat Mode text at TOP RIGHT corner (Level 3 Style)
+    if cheat_mode:
+        draw_text_bold(WIN_W - 220, WIN_H - 35, 'CHEAT MODE ON', color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
+
+    # 3. Header & Weapons HUD
+    hud_top_y = WIN_H - 30
+    draw_text_bold(25, hud_top_y, "9 LIVES - LEVEL 2: ZOMBIE OUTBREAK", color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
+
+    if gun_picked_up or catnip_picked_up:
+        w_name = "GRENADE LAUNCHER" if active_weapon == "gun" else "GLOWING BLUE CATNIP"
+        switch_prompt = " (Press 'F' to Switch Weapon)" if catnip_picked_up else ""
+        status_text = " [TARGET LOCKED - CLICK LMB TO FIRE!]" if is_target_locked else " [AIM & CLICK LMB TO FIRE]"
+        color_status = (1.0, 0.3, 0.3) if is_target_locked else (0.0, 0.9, 1.0)
+        weapon_str = f"Active Weapon: {w_name}{switch_prompt} | Status:{status_text}"
+        draw_text(25, hud_top_y - 25, weapon_str, color=color_status, font=GLUT_BITMAP_HELVETICA_18)
+    else:
+        draw_text(25, hud_top_y - 25, "Objective: PICK UP GRENADE LAUNCHER AT CENTER PEDESTAL!", color=(1.0, 0.35, 0.35), font=GLUT_BITMAP_HELVETICA_18)
+
+    draw_text(25, hud_top_y - 48, f"Zombies Defeated: {zombies_killed}/{TOTAL_ZOMBIES_COUNT} (Active: {len(zombies)})", color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
+
+    # Controls Bar at bottom
+    draw_text(25, 5, "WASD: Move | Mouse: Aim | LMB: Shoot | RMB/V: POV | Space: Jump | Ctrl: Crouch | C: Cheat | F: Switch | P: Pause | R: Reset", color=(0.7, 0.7, 0.7), font=GLUT_BITMAP_HELVETICA_12)
+
+    # Catnip Spawn Objective Banner
+    if catnip_spawned and not catnip_picked_up:
+        draw_text_bold(WIN_W // 2 - 250, WIN_H // 2 + 50, "★ ALL ZOMBIES CLEARED! PICK UP GLOWING BLUE CATNIP AT THE CENTER! ★", color=(0.0, 0.85, 1.0))
+
+    # Pause Overlay
+    if is_paused:
+        draw_text_bold(WIN_W // 2 - 120, WIN_H // 2 + 10, "=== GAME PAUSED ===", color=(1.0, 0.9, 0.1))
+        draw_text(WIN_W // 2 - 100, WIN_H // 2 - 20, "Press 'P' to Resume Game", color=(1.0, 1.0, 1.0))
+
+    # Level Victory Overlay
+    if catnip_picked_up:
+        draw_text_bold(WIN_W // 2 - 180, WIN_H // 2 + 25, "=== LEVEL 2 COMPLETE! CATNIP ACQUIRED! ===", color=(0.2, 1.0, 0.4))
+        draw_text(WIN_W // 2 - 150, WIN_H // 2 - 10, "Press 'F' to Switch between Gun & Catnip | Press 'R' to Replay", color=(1.0, 1.0, 1.0))
+
+    # Game Over Overlay
+    if is_game_over:
+        draw_text_bold(WIN_W // 2 - 130, WIN_H // 2 + 20, "=== MISSION FAILED! ===", color=(1.0, 0.1, 0.1))
+        draw_text(WIN_W // 2 - 90, WIN_H // 2 - 15, "Press 'R' to Restart Arena", color=(1.0, 1.0, 1.0))
+
 # -----------------------------------------------------------------------------
 # Crate Decorations (Solid Wooden Obstacles)
 # -----------------------------------------------------------------------------
 def draw_single_crate(x, y, z, size=2.5, angle_y=0.0):
-    """
-    Renders an individual 3D wooden crate with planks and diagonal cross reinforcement.
-    """
     glPushMatrix()
     glTranslatef(x, y + size / 2.0, z)
     if angle_y != 0.0:
         glRotatef(angle_y, 0, 1, 0)
 
-    # 1. Main Wooden Box Body
     draw_box(size, size, size, color_top=COLOR_CRATE_WOOD, color_side=COLOR_CRATE_WOOD)
 
-    # 2. Dark Wood Border Trims
     trim_h = size * 0.08
     draw_box(size * 1.02, trim_h, size * 1.02, color_top=COLOR_CRATE_TRIM, color_side=COLOR_CRATE_TRIM)
 
-    # 3. Diagonal Support Crossbars on Faces
     glColor3f(*COLOR_CRATE_TRIM)
     glLineWidth(2.0)
     hs = (size / 2.0) * 1.01
     glBegin(GL_LINES)
-    # Front Face
     glVertex3f(-hs, -hs, hs); glVertex3f(hs, hs, hs)
     glVertex3f(hs, -hs, hs); glVertex3f(-hs, hs, hs)
-    # Back Face
     glVertex3f(-hs, -hs, -hs); glVertex3f(hs, hs, -hs)
     glVertex3f(hs, -hs, -hs); glVertex3f(-hs, hs, -hs)
-    # Left Face
     glVertex3f(-hs, -hs, -hs); glVertex3f(-hs, hs, hs)
     glVertex3f(-hs, -hs, hs); glVertex3f(-hs, hs, -hs)
-    # Right Face
     glVertex3f(hs, -hs, -hs); glVertex3f(hs, hs, hs)
     glVertex3f(hs, -hs, hs); glVertex3f(hs, hs, -hs)
     glEnd()
@@ -532,9 +520,6 @@ def draw_single_crate(x, y, z, size=2.5, angle_y=0.0):
     glPopMatrix()
 
 def draw_crate_piles():
-    """
-    Renders all 3D crates in the arena from the pre-calculated crate dataset.
-    """
     for c in CRATE_BOXES:
         draw_single_crate(c["cx"], c["min_y"], c["cz"], c["size"], c["angle"])
 
@@ -542,49 +527,39 @@ def draw_crate_piles():
 # Level 2 Arena: Clean Dark Floor & Walls
 # -----------------------------------------------------------------------------
 def draw_arena_environment():
-    """
-    Draws the Level 2 Arena:
-    - Clean solid dark floor (No grids)
-    - 4 perimeter walls in dark crimson obsidian with top trims (No roof lights)
-    - 4 corner guard pillars with glowing torch beacons
-    - Solid brown wooden crate piles
-    """
-    # 1. Clean Solid Dark Floor
     glPushMatrix()
     glTranslatef(0.0, -0.1, 0.0)
     draw_box(ARENA_SIZE * 2.0, 0.2, ARENA_SIZE * 2.0, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
-    # 2. Perimeter Walls (North, South, East, West)
     wall_thickness = 1.6
     half_size = ARENA_SIZE
     wall_y = WALL_HEIGHT / 2.0
 
-    # North Wall (Z = +ARENA_SIZE)
+    # North Wall
     glPushMatrix()
     glTranslatef(0.0, wall_y, half_size + wall_thickness / 2.0)
     draw_box(half_size * 2.0 + wall_thickness * 2.0, WALL_HEIGHT, wall_thickness, color_top=COLOR_WALL, color_side=COLOR_WALL_SIDE)
     glPopMatrix()
 
-    # South Wall (Z = -ARENA_SIZE)
+    # South Wall
     glPushMatrix()
     glTranslatef(0.0, wall_y, -half_size - wall_thickness / 2.0)
     draw_box(half_size * 2.0 + wall_thickness * 2.0, WALL_HEIGHT, wall_thickness, color_top=COLOR_WALL, color_side=COLOR_WALL_SIDE)
     glPopMatrix()
 
-    # West Wall (X = -ARENA_SIZE)
+    # West Wall
     glPushMatrix()
     glTranslatef(-half_size - wall_thickness / 2.0, wall_y, 0.0)
     draw_box(wall_thickness, WALL_HEIGHT, half_size * 2.0, color_top=COLOR_WALL, color_side=COLOR_WALL_SIDE)
     glPopMatrix()
 
-    # East Wall (X = +ARENA_SIZE)
+    # East Wall
     glPushMatrix()
     glTranslatef(half_size + wall_thickness / 2.0, wall_y, 0.0)
     draw_box(wall_thickness, WALL_HEIGHT, half_size * 2.0, color_top=COLOR_WALL, color_side=COLOR_WALL_SIDE)
     glPopMatrix()
 
-    # Wall Trims along top edges
     trim_color = COLOR_WALL_TRIM
     for wx, wz, sx, sz in [
         (0.0, half_size, half_size * 2.0, 0.4),
@@ -597,7 +572,6 @@ def draw_arena_environment():
         draw_box(sx, 0.6, sz, color_top=trim_color, color_side=trim_color)
         glPopMatrix()
 
-    # 3. Corner Guard Pillars
     pillar_coords = [
         (-half_size, -half_size),
         (half_size, -half_size),
@@ -615,25 +589,19 @@ def draw_arena_environment():
         draw_box(2.0, 0.6, 2.0, color_top=COLOR_PILLAR_GLOW, color_side=(0.7, 0.1, 0.1))
         glPopMatrix()
 
-    # 4. Render Decorative Crate Piles
     draw_crate_piles()
 
 # -----------------------------------------------------------------------------
 # 3D Gun Model & Pickup Pedestal (Grenade Launcher)
 # -----------------------------------------------------------------------------
 def draw_3d_gun_model():
-    """
-    Renders a heavy 3D Grenade Launcher using glutSolidCube and gluCylinder.
-    """
     glPushMatrix()
-    # Launcher Main Frame / Receiver
     glColor3f(*COLOR_GUN_BODY)
     glPushMatrix()
     glScalef(0.16, 0.24, 0.65)
     glutSolidCube(1.0)
     glPopMatrix()
 
-    # Heavy Grip / Handle
     glColor3f(0.15, 0.15, 0.18)
     glPushMatrix()
     glTranslatef(0.0, -0.22, -0.15)
@@ -642,15 +610,12 @@ def draw_3d_gun_model():
     glutSolidCube(1.0)
     glPopMatrix()
 
-    # Wide Grenade Barrel
     glColor3f(*COLOR_GUN_ACCENT)
     glPushMatrix()
     glTranslatef(0.0, 0.04, 0.28)
-    q = gluNewQuadric()
-    gluCylinder(q, 0.09, 0.09, 0.48, 14, 4)
+    gluCylinder(Q(), 0.09, 0.09, 0.48, 14, 4)
     glPopMatrix()
 
-    # Barrel Muzzle Ring
     glColor3f(1.0, 0.3, 0.0)
     glPushMatrix()
     glTranslatef(0.0, 0.04, 0.76)
@@ -660,21 +625,16 @@ def draw_3d_gun_model():
     glPopMatrix()
 
 def draw_gun_pickup():
-    """
-    Renders the Grenade Launcher floating and spinning on the central pedestal if not yet picked up.
-    """
     if gun_picked_up:
         return
 
     gx, gy, gz = gun_pickup_pos
 
-    # 1. Pedestal Base
     glPushMatrix()
     glTranslatef(gx, 0.2, gz)
     draw_box(2.2, 0.4, 2.2, color_top=COLOR_PEDESTAL, color_side=(0.10, 0.12, 0.16))
     glPopMatrix()
 
-    # Outer Beacon Ring
     glColor3f(*COLOR_PEDESTAL_RING)
     glLineWidth(3.0)
     glBegin(GL_LINES)
@@ -686,7 +646,6 @@ def draw_gun_pickup():
         glVertex3f(gx + r * math.cos(a2), 0.42, gz + r * math.sin(a2))
     glEnd()
 
-    # Vertical Light Pillars
     glColor3f(0.0, 0.75, 1.0)
     glLineWidth(2.0)
     glBegin(GL_LINES)
@@ -698,7 +657,6 @@ def draw_gun_pickup():
         glVertex3f(px, 2.5, pz)
     glEnd()
 
-    # 2. Floating & Rotating 3D Gun Model
     glPushMatrix()
     bob_y = gy + 0.3 * math.sin(gun_rotation_angle * 0.05)
     glTranslatef(gx, bob_y, gz)
@@ -711,18 +669,13 @@ def draw_gun_pickup():
 # 3D Glowing Blue Catnip Pickup (Spawns after 10 zombies defeated)
 # -----------------------------------------------------------------------------
 def draw_3d_catnip_model():
-    """
-    Renders a 3D glowing blue Catnip herb pouch with leaves and sparkles.
-    """
     glPushMatrix()
-    # Main Catnip Pouch / Herb Base
     glColor3f(*COLOR_CATNIP_BLUE)
     glPushMatrix()
     glScalef(0.35, 0.40, 0.35)
     glutSolidCube(1.0)
     glPopMatrix()
 
-    # Catnip Glowing Top Leaves
     glColor3f(*COLOR_CATNIP_AURA)
     for rot_leaf in [0, 45, 90, 135]:
         glPushMatrix()
@@ -733,7 +686,6 @@ def draw_3d_catnip_model():
         glutSolidCube(1.0)
         glPopMatrix()
 
-    # Central Herb Gem Core
     glColor3f(0.7, 0.95, 1.0)
     glPushMatrix()
     glTranslatef(0.0, 0.0, 0.0)
@@ -743,15 +695,11 @@ def draw_3d_catnip_model():
     glPopMatrix()
 
 def draw_catnip_pickup():
-    """
-    Renders the Glowing Blue Catnip floating on the ground after all zombies are defeated.
-    """
     if not catnip_spawned or catnip_picked_up:
         return
 
     cx, cy, cz = catnip_pickup_pos
 
-    # 1. Glowing Blue Ground Beacon
     glColor3f(*COLOR_CATNIP_BLUE)
     glLineWidth(3.5)
     glBegin(GL_LINES)
@@ -763,7 +711,6 @@ def draw_catnip_pickup():
         glVertex3f(cx + r * math.cos(a2), 0.12, cz + r * math.sin(a2))
     glEnd()
 
-    # Rising Blue Sparkle Aura
     glColor3f(*COLOR_CATNIP_AURA)
     glPointSize(5.0)
     glBegin(GL_POINTS)
@@ -774,7 +721,6 @@ def draw_catnip_pickup():
         glVertex3f(cx + r * math.cos(ang), py, cz + r * math.sin(ang))
     glEnd()
 
-    # 2. Floating & Spinning 3D Catnip Model
     glPushMatrix()
     bob_y = cy + 0.3 * math.sin(catnip_rotation_angle * 0.06)
     glTranslatef(cx, bob_y, cz)
@@ -784,14 +730,9 @@ def draw_catnip_pickup():
     glPopMatrix()
 
 # -----------------------------------------------------------------------------
-# Character Rendering: "tung tung tung sahur" (Preserved Original Palette)
+# Character Rendering: "tung tung tung sahur"
 # -----------------------------------------------------------------------------
 def draw_character():
-    """
-    Renders 3D character model 'tung tung tung sahur' at player position.
-    Palette is strictly preserved and unaffected by cheat mode.
-    Scales height by 0.5 when crouching (identical to Arena 1).
-    """
     if first_person:
         return
 
@@ -800,23 +741,20 @@ def draw_character():
     glTranslatef(player_pos[0], curr_y, player_pos[2])
     glRotatef(player_yaw, 0, 1, 0)
 
-    # Flashing effect only when taking damage (not in cheat mode)
     if player_invulnerable_timer > 0 and (player_invulnerable_timer // 4) % 2 == 1:
         glColor3f(1.0, 0.2, 0.2)
     else:
         glColor3f(*c_body)
 
-    # Align model coordinates
     glRotatef(-90, 1, 0, 0)
     glRotatef(180, 0, 0, 1)
 
     scale_factor = 0.008
     if crouching:
-        glScalef(scale_factor, scale_factor * 0.5, scale_factor)  # Arena 1 Crouch scaling
+        glScalef(scale_factor, scale_factor * 0.5, scale_factor)
     else:
         glScalef(scale_factor, scale_factor, scale_factor)
 
-    # Main Body (Always original body color)
     glPushMatrix()
     glColor3f(*c_body)
     glTranslatef(0, 0, 120)
@@ -824,7 +762,6 @@ def draw_character():
     glutSolidCube(100)
     glPopMatrix()
 
-    # Goggles & Eyes
     for eye_x in [-16, 16]:
         glPushMatrix()
         glColor3f(*c_goggle)
@@ -847,7 +784,6 @@ def draw_character():
         glutSolidCube(100)
         glPopMatrix()
 
-        # Eyebrows
         glPushMatrix()
         glColor3f(*c_dark)
         glTranslatef(eye_x, 22, 185)
@@ -855,7 +791,6 @@ def draw_character():
         glutSolidCube(100)
         glPopMatrix()
 
-    # Nose & Smirk
     glPushMatrix()
     glColor3f(*c_dark)
     glTranslatef(0, 22, 138)
@@ -870,7 +805,6 @@ def draw_character():
     glutSolidCube(100)
     glPopMatrix()
 
-    # Left Arm
     glPushMatrix()
     glColor3f(*c_body)
     glTranslatef(-38.5, 0, 95)
@@ -878,7 +812,6 @@ def draw_character():
     glutSolidCube(100)
     glPopMatrix()
 
-    # Right Arm
     glPushMatrix()
     glColor3f(*c_body)
     glTranslatef(38.5, 0, 95)
@@ -886,7 +819,6 @@ def draw_character():
     glutSolidCube(100)
     glPopMatrix()
 
-    # Legs
     for leg_x in [-14, 14]:
         glPushMatrix()
         glColor3f(*c_dark)
@@ -902,7 +834,6 @@ def draw_character():
         glutSolidCube(100)
         glPopMatrix()
 
-    # Render Equipped Active Weapon in Right Hand
     if gun_picked_up and active_weapon == "gun":
         glPushMatrix()
         glTranslatef(38.5, 20, 70)
@@ -923,13 +854,8 @@ def draw_character():
 # Exact 3D Zombie Model Design (Turns Orange on hit)
 # -----------------------------------------------------------------------------
 def draw_zombie_mesh(is_orange=False):
-    """
-    Renders the exact 3D zombie model from zombie.py.
-    When is_orange is True (after being hit), all clothing & skin turn bright orange!
-    """
     glPushMatrix()
 
-    # Palette
     if is_orange:
         c_skin = c_z_orange
         c_hair = (0.85, 0.35, 0.0)
@@ -945,7 +871,7 @@ def draw_zombie_mesh(is_orange=False):
         c_pants = c_z_pants
         c_shoes = c_z_shoes
 
-    # 1. Head
+    # Head
     glPushMatrix()
     glColor3f(*c_skin)
     glTranslatef(0, 0, 140)
@@ -953,7 +879,6 @@ def draw_zombie_mesh(is_orange=False):
     glutSolidCube(100)
     glPopMatrix()
 
-    # Hair / Trim
     glPushMatrix()
     glColor3f(*c_hair)
     glTranslatef(0, 0, 162)
@@ -961,7 +886,6 @@ def draw_zombie_mesh(is_orange=False):
     glutSolidCube(100)
     glPopMatrix()
 
-    # Left Eye
     glPushMatrix()
     glColor3f(*c_eye_nose)
     glTranslatef(-14, 31, 142)
@@ -969,7 +893,6 @@ def draw_zombie_mesh(is_orange=False):
     glutSolidCube(100)
     glPopMatrix()
 
-    # Right Eye
     glPushMatrix()
     glColor3f(*c_eye_nose)
     glTranslatef(14, 31, 142)
@@ -977,7 +900,6 @@ def draw_zombie_mesh(is_orange=False):
     glutSolidCube(100)
     glPopMatrix()
 
-    # Nose Block
     glPushMatrix()
     glColor3f(*c_hair)
     glTranslatef(0, 31, 134)
@@ -985,7 +907,7 @@ def draw_zombie_mesh(is_orange=False):
     glutSolidCube(100)
     glPopMatrix()
 
-    # 2. Torso
+    # Torso
     glPushMatrix()
     glColor3f(*c_shirt)
     glTranslatef(0, 0, 80)
@@ -993,8 +915,7 @@ def draw_zombie_mesh(is_orange=False):
     glutSolidCube(100)
     glPopMatrix()
 
-    # 3. Arms (Cyan short sleeves at the base, green forearms reaching forward)
-    # Left Arm - Green Forearm & Hand
+    # Arms
     glPushMatrix()
     glColor3f(*c_skin)
     glTranslatef(-39.8, 28, 92)
@@ -1002,7 +923,6 @@ def draw_zombie_mesh(is_orange=False):
     glutSolidCube(100)
     glPopMatrix()
 
-    # Left Arm - Cyan Sleeve
     glPushMatrix()
     glColor3f(*c_shirt)
     glTranslatef(-39.8, 5, 92)
@@ -1010,7 +930,6 @@ def draw_zombie_mesh(is_orange=False):
     glutSolidCube(100)
     glPopMatrix()
 
-    # Right Arm - Green Forearm & Hand
     glPushMatrix()
     glColor3f(*c_skin)
     glTranslatef(39.8, 28, 92)
@@ -1018,7 +937,6 @@ def draw_zombie_mesh(is_orange=False):
     glutSolidCube(100)
     glPopMatrix()
 
-    # Right Arm - Cyan Sleeve
     glPushMatrix()
     glColor3f(*c_shirt)
     glTranslatef(39.8, 5, 92)
@@ -1026,7 +944,7 @@ def draw_zombie_mesh(is_orange=False):
     glutSolidCube(100)
     glPopMatrix()
 
-    # 4. Legs
+    # Legs & Feet
     glPushMatrix()
     glColor3f(*c_pants)
     glTranslatef(-16, 0, 30)
@@ -1041,7 +959,7 @@ def draw_zombie_mesh(is_orange=False):
     glutSolidCube(100)
     glPopMatrix()
 
-    # 5. Feet
+    # Feet
     glPushMatrix()
     glColor3f(*c_shoes)
     glTranslatef(-16, 2, 5)
@@ -1062,15 +980,12 @@ class Zombie:
     def __init__(self, x, z):
         self.pos = [x, 0.0, z]
         self.is_hit_orange = False
-        self.death_timer = 0
         self.speed = zombie_base_speed + random.uniform(-0.003, 0.003)
         self.yaw = 0.0
         self.walk_anim = random.uniform(0, 10)
 
     def update(self):
         self.walk_anim += 0.04
-
-        # Move slowly towards player
         dx = player_pos[0] - self.pos[0]
         dz = player_pos[2] - self.pos[2]
         dist = math.sqrt(dx * dx + dz * dz)
@@ -1079,17 +994,14 @@ class Zombie:
             step_x = (dx / dist) * self.speed
             step_z = (dz / dist) * self.speed
 
-            # Candidate next position
             next_x = self.pos[0] + step_x
             next_z = self.pos[2] + step_z
 
-            # Resolve crate obstacle collision (Zombie cannot walk through crates)
             res_x, res_z = resolve_entity_crate_collision(next_x, next_z, radius=0.8, y_height=0.5)
 
             self.pos[0] = res_x
             self.pos[2] = res_z
 
-            # Face movement direction
             move_dx = res_x - self.pos[0]
             move_dz = res_z - self.pos[2]
             if move_dx * move_dx + move_dz * move_dz > 1e-6:
@@ -1097,7 +1009,6 @@ class Zombie:
             else:
                 self.yaw = math.degrees(math.atan2(dx, dz))
 
-        # Keep within arena bounds
         limit = ARENA_SIZE - 2.0
         self.pos[0] = max(-limit, min(limit, self.pos[0]))
         self.pos[2] = max(-limit, min(limit, self.pos[2]))
@@ -1106,23 +1017,16 @@ class Zombie:
         glPushMatrix()
         glTranslatef(self.pos[0], self.pos[1], self.pos[2])
         glRotatef(self.yaw, 0, 1, 0)
-
-        # Align model coordinates to world space
         glRotatef(-90, 1, 0, 0)
         glRotatef(180, 0, 0, 1)
 
         scale_factor = 0.008
         glScalef(scale_factor, scale_factor, scale_factor)
 
-        # Draw the zombie mesh (turns orange if hit)
         draw_zombie_mesh(is_orange=self.is_hit_orange)
-
         glPopMatrix()
 
 def spawn_zombie():
-    """
-    Spawns a zombie at a random perimeter edge up to the total round limit of 10.
-    """
     global zombies_spawned
 
     if zombies_spawned >= TOTAL_ZOMBIES_COUNT:
@@ -1132,16 +1036,16 @@ def spawn_zombie():
 
     side = random.randint(0, 3)
     spawn_offset = ARENA_SIZE - 4.0
-    if side == 0:  # North
+    if side == 0:
         x = random.uniform(-spawn_offset, spawn_offset)
         z = spawn_offset
-    elif side == 1:  # South
+    elif side == 1:
         x = random.uniform(-spawn_offset, spawn_offset)
         z = -spawn_offset
-    elif side == 2:  # West
+    elif side == 2:
         x = -spawn_offset
         z = random.uniform(-spawn_offset, spawn_offset)
-    else:  # East
+    else:
         x = spawn_offset
         z = random.uniform(-spawn_offset, spawn_offset)
 
@@ -1149,12 +1053,12 @@ def spawn_zombie():
     zombies_spawned += 1
 
 # -----------------------------------------------------------------------------
-# Slow Projectiles (Grenade / Catnip) & Red Glow Death Effects
+# Targeting & Projectiles (LMB Triggered)
 # -----------------------------------------------------------------------------
-def check_auto_target_and_shoot():
+def check_target_lock():
     """
-    Calculates if the player's view vector is pointed at any active zombie.
-    If aiming at an UNOBSTRUCTED zombie (not behind crates), launches weapon automatically!
+    Checks if crosshair is pointed at an unobstructed zombie target to highlight reticle.
+    Does NOT auto-fire; shooting is strictly triggered by LMB!
     """
     global is_target_locked
 
@@ -1165,7 +1069,6 @@ def check_auto_target_and_shoot():
     rad_yaw = math.radians(player_yaw)
     rad_pitch = math.radians(player_pitch)
 
-    # Player look direction unit vector
     dir_x = math.sin(rad_yaw) * math.cos(rad_pitch)
     dir_y = math.sin(rad_pitch)
     dir_z = math.cos(rad_yaw) * math.cos(rad_pitch)
@@ -1174,9 +1077,8 @@ def check_auto_target_and_shoot():
 
     locked = False
     for z in zombies:
-        # Check Line of Sight: Cannot see or shoot through crates!
         if not is_line_of_sight_clear(player_pos[0], player_pos[2], z.pos[0], z.pos[2]):
-            continue  # Blocked by solid wooden crate
+            continue
 
         vx = z.pos[0] - player_pos[0]
         vy = (z.pos[1] + 1.2) - eye_y
@@ -1187,18 +1089,15 @@ def check_auto_target_and_shoot():
             ux, uy, uz = vx / dist, vy / dist, vz / dist
             dot = dir_x * ux + dir_y * uy + dir_z * uz
 
-            # Threshold for aiming at zombie (~20 degree cone)
             if dot > 0.93:
                 locked = True
-                if fire_cooldown <= 0:
-                    launch_projectile()
                 break
 
     is_target_locked = locked
 
 def launch_projectile():
     """
-    Fires a slow-motion, arced projectile grenade or catnip based on active_weapon.
+    Launches a slow-motion arced projectile grenade or catnip when player clicks LMB.
     """
     global fire_cooldown
 
@@ -1206,17 +1105,16 @@ def launch_projectile():
         return
     if active_weapon == "catnip" and not catnip_picked_up:
         return
-    if fire_cooldown > 0:
+    if fire_cooldown > 0 or is_paused or is_game_over or is_level_cleared:
         return
 
-    fire_cooldown = 22  # Deliberate launch rate
+    fire_cooldown = 18
 
     rad_yaw = math.radians(player_yaw)
     rad_pitch = math.radians(player_pitch)
 
-    # Calculate velocity with upward toss arc (slowed down for clear visual tracking)
     vx = math.sin(rad_yaw) * math.cos(rad_pitch) * GRENADE_SPEED
-    vy = math.sin(rad_pitch) * GRENADE_SPEED + 0.08  # Upward launch arc
+    vy = math.sin(rad_pitch) * GRENADE_SPEED + 0.08
     vz = math.cos(rad_yaw) * math.cos(rad_pitch) * GRENADE_SPEED
 
     start_x = player_pos[0] + math.sin(rad_yaw) * 0.8
@@ -1232,37 +1130,28 @@ def launch_projectile():
     })
 
 def update_grenades_and_explosions():
-    """
-    Updates projectile trajectory slowly with gravity, detects collision with crates/zombies/ground,
-    turns zombies orange on hit, triggers one-shot defeat, and spawns red glow effects.
-    """
     global score, zombies_killed, is_level_cleared, catnip_spawned
 
-    for g in grenades[:]:
-        # Move along velocity
+    for g in list(grenades):
         g['pos'][0] += g['vel'][0]
         g['pos'][1] += g['vel'][1]
         g['pos'][2] += g['vel'][2]
 
-        # Apply gravity drop
         g['vel'][1] += GRENADE_GRAVITY
         g['rot'] = (g['rot'] + 8.0) % 360.0
         g['life'] -= 1
 
         gx, gy, gz = g['pos']
 
-        # Check boundary collision or floor impact
         hit_ground = (gy <= 0.2)
         out_of_bounds = (abs(gx) >= ARENA_SIZE or abs(gz) >= ARENA_SIZE)
 
-        # Check collision with solid wooden crates (Cannot shoot through crates)
         hit_crate = False
         for c in CRATE_BOXES:
             if c['min_x'] <= gx <= c['max_x'] and c['min_y'] <= gy <= c['max_y'] and c['min_z'] <= gz <= c['max_z']:
                 hit_crate = True
                 break
 
-        # Check direct zombie collision
         hit_zombie_target = None
         for z in zombies:
             dist_sq = (gx - z.pos[0])**2 + (gy - (z.pos[1] + 1.0))**2 + (gz - z.pos[2])**2
@@ -1270,49 +1159,37 @@ def update_grenades_and_explosions():
                 hit_zombie_target = z
                 break
 
-        # Explode if hit zombie, hit crate, hit floor, or timed out
         if hit_zombie_target or hit_crate or hit_ground or out_of_bounds or g['life'] <= 0:
             if g in grenades:
                 grenades.remove(g)
 
-            # Damage zombies within blast radius only if Line of Sight is unobstructed by crates!
-            for z in zombies[:]:
+            for z in list(zombies):
                 dist_blast = math.sqrt((gx - z.pos[0])**2 + (gy - z.pos[1])**2 + (gz - z.pos[2])**2)
                 if dist_blast <= 4.0 or z == hit_zombie_target:
-                    # Verify blast LOS (Crate blocks blast penetration)
                     if z == hit_zombie_target or is_line_of_sight_clear(gx, gz, z.pos[0], z.pos[2]):
-                        # 1. Zombie turns Orange on hit
                         z.is_hit_orange = True
-
-                        # 2. Spawns Red Glow death aura at zombie kill location
                         death_effects.append({
                             'pos': [z.pos[0], 0.1, z.pos[2]],
                             'timer': 60,
                             'max_timer': 60
                         })
 
-                        # 3. One-Shot Kill: Remove zombie immediately
                         if z in zombies:
                             zombies.remove(z)
                             score += 100
                             zombies_killed += 1
 
-                            # When all 10 zombies are defeated -> Spawn glowing blue Catnip!
                             if zombies_killed >= TOTAL_ZOMBIES_COUNT:
                                 is_level_cleared = True
                                 catnip_spawned = True
                                 print(">> ALL 10 ZOMBIES DEFEATED! A Glowing Blue Catnip has spawned on the ground!")
 
-    # Update lingering Red Glow death effects
-    for d in death_effects[:]:
+    for d in list(death_effects):
         d['timer'] -= 1
         if d['timer'] <= 0:
             death_effects.remove(d)
 
 def draw_grenades():
-    """
-    Renders 3D slow-moving spinning projectile grenades or glowing catnip.
-    """
     for g in grenades:
         gx, gy, gz = g['pos']
         glPushMatrix()
@@ -1320,10 +1197,8 @@ def draw_grenades():
         glRotatef(g['rot'], 1, 1, 0)
 
         if g.get('is_catnip', False):
-            # Glowing Blue Catnip Projectile
             draw_box(0.35, 0.35, 0.35, color_top=COLOR_CATNIP_BLUE, color_side=COLOR_CATNIP_AURA)
         else:
-            # Slow Grenade Body
             draw_box(0.35, 0.35, 0.35, color_top=COLOR_GRENADE, color_side=(0.12, 0.28, 0.14))
             glTranslatef(0.0, 0.22, 0.0)
             draw_box(0.14, 0.14, 0.14, color_top=COLOR_GRENADE_FUSE, color_side=COLOR_GRENADE_FUSE)
@@ -1331,16 +1206,12 @@ def draw_grenades():
         glPopMatrix()
 
 def draw_red_glow_death_effects():
-    """
-    Renders an expanding, lingering Red Glow / Death Aura at the location of each defeated zombie.
-    """
     for d in death_effects:
         dx, dy, dz = d['pos']
-        progress = 1.0 - (d['timer'] / float(d['max_timer']))  # 0.0 to 1.0
+        progress = 1.0 - (d['timer'] / float(d['max_timer']))
         current_radius = 1.0 + progress * 3.5
         alpha_intensity = max(0.2, 1.0 - progress)
 
-        # 1. Pulsating Red Expanding Ring on Floor
         glColor3f(1.0 * alpha_intensity, 0.1 * alpha_intensity, 0.1 * alpha_intensity)
         glLineWidth(3.5)
         glBegin(GL_LINES)
@@ -1352,7 +1223,6 @@ def draw_red_glow_death_effects():
             glVertex3f(dx + current_radius * math.cos(t2), dy + 0.02, dz + current_radius * math.sin(t2))
         glEnd()
 
-        # 2. Glowing Red Core Particles
         glPointSize(6.0)
         glBegin(GL_POINTS)
         for h_step in range(6):
@@ -1363,7 +1233,6 @@ def draw_red_glow_death_effects():
                 glVertex3f(dx + pr * 0.4 * math.cos(ang), py, dz + pr * 0.4 * math.sin(ang))
         glEnd()
 
-        # 3. Inner Red Core Glow Box
         glPushMatrix()
         glTranslatef(dx, dy + 0.6, dz)
         core_scale = max(0.1, 0.6 * (1.0 - progress))
@@ -1371,57 +1240,49 @@ def draw_red_glow_death_effects():
         glPopMatrix()
 
 # -----------------------------------------------------------------------------
-# Camera Setup (Crouch Camera matched with Arena 1)
+# Camera Setup (Level 3 Style Camera Look-At)
 # -----------------------------------------------------------------------------
 def setup_camera():
-    """
-    Configures perspective projection and positions camera in 1st Person or 3rd Person Follow mode.
-    Crouch drops eye height smoothly to 0.8 units (identical to Arena 1).
-    """
+    glViewport(0, 0, WIN_W, WIN_H)
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
-    gluPerspective(65.0, float(WINDOW_WIDTH) / float(WINDOW_HEIGHT), 0.1, 300.0)
+    gluPerspective(55.0, WIN_W / float(WIN_H), 0.1, 350.0)
 
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
 
     rad_yaw = math.radians(player_yaw)
     rad_pitch = math.radians(player_pitch)
-    curr_eye_h = 0.8 if crouching else eye_height  # Arena 1 Crouch Eye Height
+    curr_eye_h = 0.8 if crouching else eye_height
 
-    if first_person:  # 1st Person POV
-        cam_x = player_pos[0]
-        cam_y = player_pos[1] + curr_eye_h
-        cam_z = player_pos[2]
-
-        target_x = cam_x + math.sin(rad_yaw) * math.cos(rad_pitch)
-        target_y = cam_y + math.sin(rad_pitch)
-        target_z = cam_z + math.cos(rad_yaw) * math.cos(rad_pitch)
-
-        gluLookAt(cam_x, cam_y, cam_z,
-                  target_x, target_y, target_z,
-                  0.0, 1.0, 0.0)
-
-    else:  # 3rd Person Follow (Arena 1 Camera Alignment)
-        cam_x = player_pos[0] - math.sin(rad_yaw) * cam_dist
-        cam_y = player_pos[1] + cam_height
-        cam_z = player_pos[2] - math.cos(rad_yaw) * cam_dist
-
-        target_x = player_pos[0]
-        target_y = player_pos[1] + curr_eye_h
-        target_z = player_pos[2]
-
-        gluLookAt(cam_x, cam_y, cam_z,
-                  target_x, target_y, target_z,
-                  0.0, 1.0, 0.0)
+    if first_person:
+        eye_x = player_pos[0]
+        eye_y = player_pos[1] + curr_eye_h
+        eye_z = player_pos[2]
+        center_x = eye_x + math.sin(rad_yaw) * math.cos(rad_pitch) * 100.0
+        center_y = eye_y + math.sin(rad_pitch) * 100.0
+        center_z = eye_z + math.cos(rad_yaw) * math.cos(rad_pitch) * 100.0
+        gluLookAt(eye_x, eye_y, eye_z, center_x, center_y, center_z, 0.0, 1.0, 0.0)
+    else:
+        eye_x = player_pos[0] - math.sin(rad_yaw) * cam_dist
+        eye_y = player_pos[1] + cam_height
+        eye_z = player_pos[2] - math.cos(rad_yaw) * cam_dist
+        center_x = eye_x + math.sin(rad_yaw) * math.cos(rad_pitch) * 100.0
+        center_y = eye_y + math.sin(rad_pitch) * 100.0
+        center_z = eye_z + math.cos(rad_yaw) * math.cos(rad_pitch) * 100.0
+        gluLookAt(eye_x, eye_y, eye_z, center_x, center_y, center_z, 0.0, 1.0, 0.0)
 
 # -----------------------------------------------------------------------------
 # Main Display Callback
 # -----------------------------------------------------------------------------
 def display():
-    """
-    Main OpenGL Display Callback.
-    """
+    global WIN_W, WIN_H
+
+    cur_w = glutGet(GLUT_WINDOW_WIDTH)
+    cur_h = glutGet(GLUT_WINDOW_HEIGHT)
+    if cur_w > 0 and cur_h > 0:
+        WIN_W, WIN_H = cur_w, cur_h
+
     glClearColor(0.04, 0.05, 0.07, 1.0)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glLoadIdentity()
@@ -1452,57 +1313,9 @@ def display():
     # 7. Render Red Glow Death Effects
     draw_red_glow_death_effects()
 
-    # 8. Render Crosshair
+    # 8. Render Crosshair & HUD
     draw_crosshair()
-
-    # 9. Render HUD 2D Text Overlay
-    hud_y = WINDOW_HEIGHT - 30
-    draw_text_2d(15, hud_y, "9 Lives - Level 2 Arena: Combat & Abilities", color=(1.0, 0.85, 0.2))
-
-    # Red Health Bar (Protected by Cheat Mode)
-    draw_hud_health_bar(15, hud_y - 28, 220, 18, player_hp, player_max_hp)
-    hp_label = "HP: UNLIMITED (INVULNERABLE)" if cheat_mode else f"HP: {player_hp} / {player_max_hp}"
-    draw_text_2d(245, hud_y - 28, hp_label, color=(1.0, 0.85, 0.2) if cheat_mode else (1.0, 0.35, 0.35))
-    
-    # Weapon Display & Mode Switch Indicator
-    if gun_picked_up or catnip_picked_up:
-        w_name = "GRENADE LAUNCHER" if active_weapon == "gun" else "GLOWING BLUE CATNIP"
-        switch_prompt = " (Press 'F' to Switch Weapon)" if catnip_picked_up else ""
-        status_text = "AUTO-TARGET FIRING!" if is_target_locked else "AIM AT A ZOMBIE TO LAUNCH"
-        color_status = (1.0, 0.3, 0.3) if is_target_locked else (0.0, 0.9, 1.0)
-        weapon_str = f"Active Weapon: {w_name}{switch_prompt} | Status: {status_text}"
-        draw_text_2d(15, hud_y - 54, weapon_str, color=color_status)
-    else:
-        draw_text_2d(15, hud_y - 54, "Objective: WALK TO CENTER PEDESTAL & PICK UP GRENADE LAUNCHER!", color=(1.0, 0.3, 0.3))
-
-    draw_text_2d(15, hud_y - 78, f"Zombies Defeated: {zombies_killed}/{TOTAL_ZOMBIES_COUNT} (Active: {len(zombies)}) | Score: {score}", color=(1.0, 1.0, 1.0))
-
-    cam_str = "1st Person POV (V or Right-Click to Switch)" if first_person else "3rd Person Follow (V or Right-Click to Switch)"
-    crouch_str = " | State: CROUCHING (Hitbox: 0.8)" if crouching else " | State: STANDING"
-    cheat_str = " | CHEAT MODE: ON (INVULNERABLE)" if cheat_mode else " | Cheat: Press 'C'"
-    draw_text_2d(15, hud_y - 102, f"Camera: {cam_str}{crouch_str}{cheat_str}", color=(0.7, 0.7, 0.8))
-
-    # Controls Bar
-    draw_text_2d(15, 20, "WASD: Move | Hold LMB + Drag: Aim | Space: Jump | CTRL: Crouch | C: Cheat Mode | F: Switch Weapon | P: Pause | R: Reset", color=(0.8, 0.8, 0.8))
-
-    # Catnip Spawn Objective Banner
-    if catnip_spawned and not catnip_picked_up:
-        draw_text_2d(WINDOW_WIDTH // 2 - 220, WINDOW_HEIGHT // 2 + 50, "★ ALL ZOMBIES CLEARED! PICK UP GLOWING BLUE CATNIP AT THE CENTER! ★", color=(0.0, 0.85, 1.0))
-
-    # Pause Overlay
-    if is_paused:
-        draw_text_2d(WINDOW_WIDTH // 2 - 120, WINDOW_HEIGHT // 2, "=== GAME PAUSED ===", color=(1.0, 0.9, 0.1))
-        draw_text_2d(WINDOW_WIDTH // 2 - 140, WINDOW_HEIGHT // 2 - 30, "Press 'P' to Resume Combat", color=(1.0, 1.0, 1.0))
-
-    # Level Victory Overlay (When Catnip is picked up)
-    if catnip_picked_up:
-        draw_text_2d(WINDOW_WIDTH // 2 - 210, WINDOW_HEIGHT // 2 + 20, "=== LEVEL 2 COMPLETE! CATNIP ACQUIRED! ===", color=(0.2, 1.0, 0.4))
-        draw_text_2d(WINDOW_WIDTH // 2 - 160, WINDOW_HEIGHT // 2 - 10, "Press 'F' to Switch between Gun & Catnip | Press 'R' to Replay", color=(1.0, 1.0, 1.0))
-
-    # Game Over Overlay
-    if is_game_over:
-        draw_text_2d(WINDOW_WIDTH // 2 - 160, WINDOW_HEIGHT // 2 + 20, "=== GAME OVER: HEALTH DEPLETED ===", color=(1.0, 0.1, 0.1))
-        draw_text_2d(WINDOW_WIDTH // 2 - 120, WINDOW_HEIGHT // 2 - 15, "Press 'R' to Restart Arena", color=(1.0, 1.0, 1.0))
+    draw_hud()
 
     glutSwapBuffers()
 
@@ -1510,16 +1323,34 @@ def display():
 # Physics & Game Logic Update Loop
 # -----------------------------------------------------------------------------
 def idle():
-    """
-    Main Animation & Physics loop called continuously by GLUT.
-    """
     global player_pos, is_jumping, y_velocity, gun_rotation_angle, catnip_rotation_angle
     global gun_picked_up, catnip_picked_up, fire_cooldown, zombie_spawn_timer
-    global player_hp, player_invulnerable_timer, is_game_over
+    global player_hits_left, player_invulnerable_timer, is_game_over
+    global player_yaw, player_pitch, last_mouse_x, last_mouse_y, mouse_initialized
 
     if is_paused or is_game_over:
         glutPostRedisplay()
         return
+
+    # Update Mouse Movement Aiming (Level 3 Continuous Cursor Tracking)
+    try:
+        class _POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        _pt = _POINT()
+        if ctypes.windll.user32.GetCursorPos(ctypes.byref(_pt)):
+            if mouse_initialized:
+                dx = _pt.x - last_mouse_x
+                dy = _pt.y - last_mouse_y
+                if dx != 0 or dy != 0:
+                    mouse_sensitivity = 0.28
+                    player_yaw = (player_yaw + dx * mouse_sensitivity) % 360.0
+                    player_pitch = max(-65.0, min(65.0, player_pitch - dy * mouse_sensitivity))
+            else:
+                mouse_initialized = True
+            last_mouse_x = _pt.x
+            last_mouse_y = _pt.y
+    except:
+        pass
 
     # 1. Update Gun & Catnip Rotations
     gun_rotation_angle = (gun_rotation_angle + 2.5) % 360.0
@@ -1530,7 +1361,7 @@ def idle():
         dist_to_gun = math.sqrt((player_pos[0] - gun_pickup_pos[0])**2 + (player_pos[2] - gun_pickup_pos[2])**2)
         if dist_to_gun < 2.2:
             gun_picked_up = True
-            print(">> Grenade Launcher Acquired! Aim at any zombie to Launch Slow Projectile Nades!")
+            print(">> Grenade Launcher Acquired! Click LMB to Launch Slow Projectile Nades!")
 
     # 3. Check Catnip Pickup Collision (after all zombies defeated)
     if catnip_spawned and not catnip_picked_up:
@@ -1552,8 +1383,8 @@ def idle():
     if fire_cooldown > 0:
         fire_cooldown -= 1
 
-    # 6. Check Auto-Aim / Look-at Shooting (With Line of Sight check)
-    check_auto_target_and_shoot()
+    # 6. Check Crosshair Target Lock (Highlight only, no auto-fire)
+    check_target_lock()
 
     # 7. Update Flying Grenades / Catnip Projectiles & Crate Blast Blocking
     update_grenades_and_explosions()
@@ -1565,73 +1396,48 @@ def idle():
             zombie_spawn_timer = 0
             spawn_zombie()
 
-    # 9. Update Zombies & Player Hit Detection
+    # 9. Update Zombies & Player Hit Detection (9 Lives System)
     if player_invulnerable_timer > 0:
         player_invulnerable_timer -= 1
 
     for z in zombies:
         z.update()
-        # Collision with player
         dist_to_player = math.sqrt((z.pos[0] - player_pos[0])**2 + (z.pos[2] - player_pos[2])**2)
         if dist_to_player < 1.5 and player_invulnerable_timer <= 0:
-            if not cheat_mode:  # Protected by Cheat Mode
-                player_hp = max(0, player_hp - 15)
+            if not cheat_mode:
+                player_hits_left -= 1
                 player_invulnerable_timer = 50
-                print(f">> Player hit by Zombie! HP: {player_hp}/{player_max_hp}")
-                if player_hp <= 0:
+                print(f">> Player hit by Zombie! Lives remaining: {player_hits_left}/{MAX_PLAYER_HITS}")
+                if player_hits_left <= 0:
                     is_game_over = True
-                    print(">> Health depleted! Press R to Restart.")
+                    print(">> All 9 Lives depleted! Press R to Restart.")
             else:
-                player_invulnerable_timer = 30  # No damage in cheat mode
+                player_invulnerable_timer = 30
 
     glutPostRedisplay()
 
 # -----------------------------------------------------------------------------
 # Input Handlers
 # -----------------------------------------------------------------------------
-def mouse_motion_handler(x, y):
-    """
-    Handles camera rotation when Left Mouse Button (LMB) is held down and dragged,
-    exactly like Arena 3!
-    """
-    global player_yaw, player_pitch, last_x, last_y
-
-    if mouse_down:
-        dx = x - last_x
-        dy = y - last_y
-
-        player_yaw = (player_yaw - dx * 0.45) % 360.0
-        player_pitch = max(-45.0, min(60.0, player_pitch - dy * 0.35))
-
-        last_x, last_y = x, y
-        glutPostRedisplay()
-
 def mouse_listener(button, state, x, y):
-    """
-    Handles mouse button events:
-    - LMB Hold & Drag: Controls Camera Look Direction (Arena 3 style)
-    - RMB Click: Toggles Camera View (1st Person POV <-> 3rd Person Follow)
-    """
-    global mouse_down, last_x, last_y, first_person
+    global first_person
 
-    if button == GLUT_LEFT_BUTTON:
-        if state == GLUT_DOWN:
-            mouse_down = True
-            last_x, last_y = x, y
-        elif state == GLUT_UP:
-            mouse_down = False
+    if is_paused or is_game_over or is_level_cleared:
+        return
 
-    elif button == GLUT_RIGHT_BUTTON:
-        if state == GLUT_DOWN:
+    try:
+        if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN:
+            launch_projectile()
+        elif button == GLUT_RIGHT_BUTTON and state == GLUT_DOWN:
             first_person = not first_person
             glutPostRedisplay()
+    except Exception as e:
+        print(f"Mouse event error: {e}")
 
 def keyboard_listener(key, x, y):
-    """
-    Handles standard ASCII keys: WASD, Space, C (Cheat Mode), F (Switch Weapon), V, P, R, ESC.
-    """
     global player_pos, is_jumping, y_velocity
     global first_person, is_paused, is_game_over, cheat_mode, active_weapon
+    global player_yaw, player_pitch
 
     try:
         ch = key.decode('utf-8').lower()
@@ -1641,69 +1447,63 @@ def keyboard_listener(key, x, y):
     rad = math.radians(player_yaw)
 
     if not is_paused and not is_game_over:
-        # Move Forward (W)
         next_x = player_pos[0]
         next_z = player_pos[2]
 
         if ch == 'w':
             next_x += math.sin(rad) * player_speed
             next_z += math.cos(rad) * player_speed
-        # Move Backward (S)
         elif ch == 's':
             next_x -= math.sin(rad) * player_speed
             next_z -= math.cos(rad) * player_speed
-        # Strafe Left (A)
         elif ch == 'a':
             next_x += math.sin(rad + math.pi / 2.0) * player_speed
             next_z += math.cos(rad + math.pi / 2.0) * player_speed
-        # Strafe Right (D)
         elif ch == 'd':
             next_x += math.sin(rad - math.pi / 2.0) * player_speed
             next_z += math.cos(rad - math.pi / 2.0) * player_speed
 
-        # Prevent player from walking through crates (Slide around crate obstacles)
         curr_y = player_pos[1]
         res_x, res_z = resolve_entity_crate_collision(next_x, next_z, radius=0.9, y_height=curr_y)
         player_pos[0] = res_x
         player_pos[2] = res_z
 
-        # Jump (Spacebar)
         if ch == ' ' or key == b' ':
             if not is_jumping:
                 is_jumping = True
                 y_velocity = jump_strength
-        # Cheat Mode Toggle (C)
         elif ch == 'c':
             cheat_mode = not cheat_mode
             if cheat_mode:
-                player_hp = player_max_hp
-                print(">> [CHEAT MODE ENABLED]: Unlimited Health & Invulnerability ON!")
+                player_hits_left = MAX_PLAYER_HITS
+                print(">> [CHEAT MODE ENABLED]: 9 Lives & Invulnerability ON!")
             else:
                 print(">> [CHEAT MODE DISABLED]: Normal Damage Restored.")
-        # Switch Active Weapon (F): Gun <-> Catnip
         elif ch == 'f':
             if catnip_picked_up:
                 active_weapon = "catnip" if active_weapon == "gun" else "gun"
                 print(f">> Active Weapon Switched to: {active_weapon.upper()}")
             else:
                 launch_projectile()
-        # Toggle Camera View (V): 1st Person <-> 3rd Person Follow (identical to Right Click)
         elif ch == 'v':
             first_person = not first_person
+        elif ch == 'j':
+            player_yaw -= 5.0
+        elif ch == 'l':
+            player_yaw += 5.0
+        elif ch == 'i':
+            player_pitch = min(65.0, player_pitch + 5.0)
+        elif ch == 'k':
+            player_pitch = max(-65.0, player_pitch - 5.0)
 
-    # Pause Toggle (P)
+    # Pause Toggle: P Key
     if ch == 'p':
         is_paused = not is_paused
-
-    # Reset Arena (R)
     elif ch == 'r':
         reset_arena()
-
-    # ESC to Exit
     elif key == b'\x1b':
         sys.exit(0)
 
-    # Restrict player within arena boundaries
     limit = ARENA_SIZE - 1.8
     player_pos[0] = max(-limit, min(limit, player_pos[0]))
     player_pos[2] = max(-limit, min(limit, player_pos[2]))
@@ -1711,32 +1511,23 @@ def keyboard_listener(key, x, y):
     glutPostRedisplay()
 
 def special_key_listener(key, x, y):
-    """
-    Handles 'CTRL' button (Left Ctrl / Right Ctrl) for crouching (Arena 1).
-    """
     global crouching
-
-    # Keycodes 114 (GLUT_KEY_CTRL_L) & 115 (GLUT_KEY_CTRL_R) for Crouch
-    if key == 114 or key == 115:
+    if key == 114 or key == 115:  # GLUT_KEY_CTRL_L & GLUT_KEY_CTRL_R
         crouching = not crouching
         glutPostRedisplay()
 
 def reset_arena():
-    """
-    Resets the player, gun, catnip, zombies, and game stats to initial state.
-    """
-    global player_pos, player_yaw, player_pitch, player_hp
+    global player_pos, player_yaw, player_pitch, player_hits_left
     global is_jumping, crouching, gun_picked_up, catnip_spawned, catnip_picked_up, active_weapon
     global score, zombies_killed, zombies_spawned, grenades, death_effects, zombies
-    global is_game_over, is_level_cleared, is_paused, is_target_locked, mouse_down
+    global is_game_over, is_level_cleared, is_paused, is_target_locked
 
     player_pos = [0.0, 1.0, -35.0]
     player_yaw = 0.0
     player_pitch = 0.0
-    player_hp = player_max_hp
+    player_hits_left = MAX_PLAYER_HITS
     is_jumping = False
     crouching = False
-    mouse_down = False
 
     gun_picked_up = False
     catnip_spawned = False
@@ -1745,15 +1536,14 @@ def reset_arena():
     score = 0
     zombies_killed = 0
     zombies_spawned = 0
-    grenades = []
-    death_effects = []
-    zombies = []
+    grenades.clear()
+    death_effects.clear()
+    zombies.clear()
     is_game_over = False
     is_level_cleared = False
     is_paused = False
     is_target_locked = False
 
-    # Spawn 2 initial zombies
     for _ in range(2):
         spawn_zombie()
 
@@ -1765,25 +1555,22 @@ def reset_arena():
 def main():
     glutInit(sys.argv)
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
-    glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+    glutInitWindowSize(WIN_W, WIN_H)
     glutInitWindowPosition(100, 50)
     glutCreateWindow(WINDOW_TITLE)
 
-    # Register GLUT Callbacks
     glutDisplayFunc(display)
     glutIdleFunc(idle)
     glutKeyboardFunc(keyboard_listener)
     glutSpecialFunc(special_key_listener)
     glutMouseFunc(mouse_listener)
-    glutMotionFunc(mouse_motion_handler)
 
-    # Initial Arena Setup
     reset_arena()
 
     print("=================================================================")
     print(" '9 Lives' - Level 2 Arena: Tactical Crate Cover & Combat")
     print(" Sole Character: 'tung tung tung sahur'")
-    print(" Enemy: 3D Zombie from zombie.py")
+    print(" Controls: Mouse Aim (Level 3 style), LMB Shoot, P Pause, C Cheat, F Switch")
     print(" 100% CSE423 Labs 1, 1.2, 2, 3 Compliant")
     print("=================================================================")
 
