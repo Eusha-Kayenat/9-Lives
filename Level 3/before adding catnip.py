@@ -4,22 +4,6 @@
 ===============================================================================
 Course: CSE423 Computer Graphics Project
 STRICTLY ALLOWED OPENGL FUNCTIONS ONLY (From LAB 01, LAB 1.2, LAB 02, LAB 03)
-
-Features:
-- Main Character: 'tung tung tung sahur' (9 Lives)
-- Boss: 'Evil Larry' with 2-Layer Health Bar (Top: Red HP, Bottom: Ash Shield)
-- Minions: 'Small Larry'
-  * Extra slow movement speed (matched with Zombie speed)
-  * When Boss Shield breaks, ALL remaining Small Larries immediately disappear!
-- Weapons:
-  * Bomb / Grenade: Direct damage to boss and minions (LMB Click)
-  * Glowing Blue Catnip: Throw at Small Larries to charm them!
-- Charmed Small Larries run directly to Big Larry and destroy his shield in sections!
-- Pause / Resume on 'P' key
-- Weapon Switcher on 'F' key (Bomb <-> Catnip)
-- Left Mouse Click (LMB): Fire active weapon (Bomb or Catnip)
-- Right Mouse Click (RMB) / 'V': Toggle Camera View (1st Person <-> 3rd Person Follow)
-===============================================================================
 """
 
 import sys
@@ -31,7 +15,7 @@ from OpenGL.GLUT import *
 from OpenGL.GLU import *
 
 # =============================================================================
-#  WINDOW & ARENA CONSTANTS
+#  WINDOW & ARENA CONSTANTS (Original Arena Dimensions)
 # =============================================================================
 WIN_W, WIN_H = 1000, 750
 ARENA_RADIUS = 550.0
@@ -57,8 +41,8 @@ OUTER_HEIGHT = 100.0
 player_pos   = [0.0, 0.0, -320.0]
 player_yaw   = 0.0
 player_pitch = 0.0
-BASE_PLAYER_SPEED = 5
-player_speed = 5
+BASE_PLAYER_SPEED = 1.45
+player_speed = 1.45
 crouching    = False
 
 is_jumping   = False
@@ -87,9 +71,6 @@ mouse_initialized = False
 walk_anim_phase = 0.0
 is_moving = False
 arm_throw_timer = 0
-
-# Weapon Mode: "gun" (Bomb/Grenade) vs "catnip" (Taming/Charming Projectile)
-active_weapon = "gun"
 
 # =============================================================================
 #  EVIL LARRY (BOSS) STATE
@@ -140,63 +121,44 @@ def resolve_pillar_collisions(nx, nz):
     return nx, nz
 
 # =============================================================================
-#  SMALL LARRY (MINIONS) STATE & CATNIP CHARM MECHANIC
+#  SMALL LARRY (MINIONS) STATE
 # =============================================================================
 TOTAL_SMALL_LARRY_ALLOWED = 9
 small_larrys_spawned_count = 0
-MAX_ACTIVE_SMALL_LARRY    = 3
+MAX_ACTIVE_SMALL_LARRY    = 1
 small_larrys = []
-# Slower speed matched with Zombie movement pace
-small_larry_speed = 0.08
+small_larry_speed = 0.72
 
 class SmallLarry:
     def __init__(self, x, z):
-        self.pos = [x, 0.0, z]
         self.x = x
         self.y = 0.0
         self.z = z
         self.yaw = 0.0
         self.alive = True
-        self.hp = 4
+        self.hp = 4  # Requires 4 bomb hits to eliminate
         self.hit_flash = 0
-        self.charmed = False  # Set to True when hit by Catnip!
-        self.sparkle_rot = 0.0
 
-    def update(self, player_x, player_z, boss_x, boss_z):
+    def update(self, target_x, target_z):
         if not self.alive:
             return
-
-        if self.charmed:
-            self.sparkle_rot = (self.sparkle_rot + 12.0) % 360.0
-            target_x = boss_x
-            target_z = boss_z
-            speed = 0.85  # Faster sprint to Big Larry
-        else:
-            target_x = player_x
-            target_z = player_z
-            speed = small_larry_speed
-
         dx = target_x - self.x
         dz = target_z - self.z
         dist = math.sqrt(dx*dx + dz*dz)
         if dist > 0.001:
-            nx = self.x + (dx / dist) * speed
-            nz = self.z + (dz / dist) * speed
+            nx = self.x + (dx / dist) * small_larry_speed
+            nz = self.z + (dz / dist) * small_larry_speed
             self.x, self.z = resolve_pillar_collisions(nx, nz)
-            self.pos[0] = self.x
-            self.pos[2] = self.z
             self.yaw = math.degrees(math.atan2(dx, dz))
-
         if self.hit_flash > 0:
             self.hit_flash -= 1
 
 # =============================================================================
-#  WEAPONS & PROJECTILES (Bombs & Catnip)
+#  WEAPONS & BOMBS (Fixed Controlled Launch Angle)
 # =============================================================================
 bombs = []
-catnips = []
-weapon_cooldown = 0
-WEAPON_COOLDOWN_MAX = 14
+bomb_cooldown = 0
+BOMB_COOLDOWN_MAX = 12
 BOMB_DAMAGE = 15.0
 
 class Bomb:
@@ -223,37 +185,13 @@ class Bomb:
         if self.life <= 0:
             self.alive = False
 
-class CatnipProjectile:
-    def __init__(self, x, y, z, vx, vy, vz):
-        self.x = x
-        self.y = y
-        self.z = z
-        self.vx = vx
-        self.vy = vy
-        self.vz = vz
-        self.life = 150
-        self.alive = True
-        self.rot = 0.0
-
-    def update(self):
-        if not self.alive:
-            return
-        self.x += self.vx
-        self.y += self.vy
-        self.z += self.vz
-        self.vy += -0.038
-        self.rot += 12.0
-        self.life -= 1
-        if self.life <= 0:
-            self.alive = False
-
 # =============================================================================
 #  EXPLOSIONS
 # =============================================================================
 explosions = []
 
 class Explosion:
-    def __init__(self, x, y, z, max_r=18.0, is_blue=False):
+    def __init__(self, x, y, z, max_r=18.0):
         self.x = x
         self.y = y
         self.z = z
@@ -261,7 +199,6 @@ class Explosion:
         self.max_radius = max_r
         self.life = 24
         self.max_life = 24
-        self.is_blue = is_blue
         self.particles = []
         for _ in range(18):
             theta = random.uniform(0, 2*math.pi)
@@ -325,7 +262,7 @@ speedboost_items = [
 # =============================================================================
 #  BOSS OFFENSIVE POWERS (Hairball, Pounce Slam, Spherical Projectiles)
 # =============================================================================
-HAIRBALL_COOLDOWN = 30 * 60
+HAIRBALL_COOLDOWN = 30 * 60  # Every 30 seconds
 hairball_timer = HAIRBALL_COOLDOWN
 hairballs = []
 hairball_puddles = []
@@ -338,6 +275,7 @@ class Hairball:
         self.rot = 0.0
         self.alive = True
 
+        # Clamp landing target strictly inside the arena wall
         target_limit = ARENA_RADIUS - 65.0
         dist_t = math.sqrt(tx*tx + tz*tz)
         if dist_t > target_limit:
@@ -360,6 +298,7 @@ class Hairball:
         self.vy += self.gravity
         self.rot += 14.0
 
+        # Prevent projectile from flying outside the arena wall
         r_curr = math.sqrt(self.x**2 + self.z**2)
         wall_limit = ARENA_RADIUS - 35.0
         if r_curr > wall_limit:
@@ -374,6 +313,7 @@ class Hairball:
 
 class HairballPuddle:
     def __init__(self, x, z):
+        # Clamp puddle center so entire puddle radius stays strictly within arena wall
         self.radius = 38.0
         puddle_limit = ARENA_RADIUS - self.radius - 20.0
         r = math.sqrt(x*x + z*z)
@@ -383,7 +323,7 @@ class HairballPuddle:
 
         self.x = x
         self.z = z
-        self.life = 480
+        self.life = 480  # 8 seconds lingering
         self.max_life = 480
         self.bubbles = []
         for _ in range(16):
@@ -403,15 +343,16 @@ class HairballPuddle:
                 b[0] = random.uniform(-30, 30)
                 b[2] = random.uniform(-30, 30)
 
-POUNCE_COOLDOWN = 15 * 60
+POUNCE_COOLDOWN = 15 * 60  # Every 15 seconds
 pounce_timer = POUNCE_COOLDOWN
-pounce_state = 'IDLE'
+pounce_state = 'IDLE'      # 'IDLE', 'WINDUP', 'AIR'
 pounce_sub_timer = 0
 pounce_target = [0.0, 0.0]
 pounce_start = [0.0, 0.0]
 pounce_shockwave_r = 0.0
 pounce_shockwave_life = 0
 
+# Boss Spherical Projectiles (Span of 4 to 5 seconds, blocked by pillars)
 boss_spherical_timer = random.randint(4 * 60, 5 * 60)
 boss_projectiles = []
 
@@ -447,6 +388,7 @@ class BossProjectile:
         if self.life <= 0 or self.y <= 0.0:
             self.alive = False
 
+        # Collision with Outer Large Pillars (Blocked by pillars!)
         for k in range(OUTER_COUNT):
             ang = 2 * math.pi * k / OUTER_COUNT
             px = OUTER_RING_R * math.cos(ang)
@@ -457,6 +399,7 @@ class BossProjectile:
                 explosions.append(Explosion(self.x, self.y, self.z, max_r=14.0))
                 break
 
+        # Collision with Inner Small Pillars (Blocked by pillars!)
         if not small_pillars_destroyed and self.alive:
             for k in range(INNER_COUNT):
                 ang = 2 * math.pi * k / INNER_COUNT
@@ -479,7 +422,7 @@ def Q():
     return _Q
 
 # =============================================================================
-#  ARENA GEOMETRY (Cracked Magma Floor, Walls, Pillars)
+#  ORIGINAL ARENA GEOMETRY (Cracked Magma Floor, Walls, Pillars)
 # =============================================================================
 _floor_cache = None
 
@@ -667,6 +610,54 @@ def draw_large_pillar():
     glVertex3f( cap_w, cap_w,cap_z+cap_h); glVertex3f(-cap_w, cap_w,cap_z+cap_h)
     glEnd()
 
+def draw_wall_and_pillars():
+    if _wall_cache is None:
+        _build_wall()
+
+    # Draw Wall Segments
+    glBegin(GL_QUADS)
+    for rep, faces in _wall_cache:
+        for col, q in faces:
+            glColor3f(*col)
+            for v in q:
+                glVertex3f(*v)
+    glEnd()
+
+    # Draw Outer Large Pillars
+    for k in range(OUTER_COUNT):
+        ang = 2 * math.pi * k / OUTER_COUNT
+        px = OUTER_RING_R * math.cos(ang)
+        pz = OUTER_RING_R * math.sin(ang)
+        glPushMatrix()
+        glTranslatef(px, 0, pz)
+        glRotatef(-90, 1, 0, 0)
+        draw_large_pillar()
+        glPopMatrix()
+
+    # Draw Inner Small Pillars (if not destroyed)
+    if not small_pillars_destroyed:
+        for k in range(INNER_COUNT):
+            ang = 2 * math.pi * k / INNER_COUNT
+            px = INNER_RING_R * math.cos(ang)
+            pz = INNER_RING_R * math.sin(ang)
+            glPushMatrix()
+            glTranslatef(px, 0, pz)
+            glRotatef(-90, 1, 0, 0)
+            draw_small_pillar()
+            glPopMatrix()
+
+def draw_speedboost_items():
+    for item in speedboost_items:
+        if not item.active:
+            continue
+        glPushMatrix()
+        glTranslatef(item.x, item.y, item.z)
+        glRotatef(item.rot, 0, 1, 0)
+        glRotatef(30, 1, 0, 0)
+        glColor3f(0.1, 0.95, 1.0)
+        glutSolidCube(14)
+        glPopMatrix()
+
 # =============================================================================
 #  CHARACTER 3D MODELS
 # =============================================================================
@@ -685,6 +676,7 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
     else:
         glScalef(scale_f, scale_f, scale_f)
 
+    # Base alignment: shift up inside model units so feet bottom (Z = -10) touches ground at Z = 0
     glTranslatef(0, 0, 10.0)
 
     c_body   = (222/255, 137/255, 34/255)
@@ -692,6 +684,7 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
     c_goggle = (229/255, 230/255, 230/255)
     c_white  = (1.0, 1.0, 1.0)
 
+    # Check if camera is in front or behind player
     rad_yaw = math.radians(player_yaw)
     fwd_x = math.sin(rad_yaw)
     fwd_z = math.cos(rad_yaw)
@@ -743,9 +736,24 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
         glutSolidCube(100)
         glPopMatrix()
 
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(-21, 22, 112)
+        glScalef(0.06, 0.06, 0.14)
+        glutSolidCube(100)
+        glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(17, 22, 110)
+        glScalef(0.06, 0.06, 0.10)
+        glutSolidCube(100)
+        glPopMatrix()
+
     if not is_front:
         draw_face_details()
 
+    # Main Body
     glPushMatrix()
     glColor3f(*c_body)
     glTranslatef(0, 0, 95)
@@ -769,14 +777,16 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
     glColor3f(*c_body)
     glTranslatef(38.5, 0, 85)
     if arm_throw_timer > 0:
-        throw_angle = math.sin((14.0 - arm_throw_timer) / 14.0 * math.pi) * 55.0
+        throw_angle = math.sin((12.0 - arm_throw_timer) / 12.0 * math.pi) * 55.0
         glRotatef(-throw_angle, 1, 0, 0)
     glScalef(0.12, 0.2, 0.8)
     glutSolidCube(100)
     glPopMatrix()
 
+    # Dynamic Leg Walking Animation
     leg_swing = math.sin(walk_anim_phase) * 20.0
 
+    # Left Leg & Foot
     glPushMatrix()
     glTranslatef(-14, 0, 10)
     glRotatef(leg_swing, 1, 0, 0)
@@ -793,6 +803,7 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
     glutSolidCube(100)
     glPopMatrix()
 
+    # Right Leg & Foot
     glPushMatrix()
     glTranslatef(14, 0, 10)
     glRotatef(-leg_swing, 1, 0, 0)
@@ -828,6 +839,7 @@ def draw_evil_larry_boss():
     else:
         c_black = (0.02, 0.02, 0.02)
 
+    # Eyes & Inner ears turn dark red when small pillars are destroyed
     if small_pillars_destroyed:
         c_inner_ear  = (0.55, 0.04, 0.04)
         c_eye_white  = (0.75, 0.05, 0.05)
@@ -855,7 +867,7 @@ def draw_evil_larry_boss():
     gluSphere(Q(), 50, 16, 16)
     glPopMatrix()
 
-    # 3. Pointed Ears
+    # 3. Pointed Ears with Inner Ear Triangles
     for side, angle in [(-32, -8), (32, 8)]:
         glPushMatrix()
         glColor3f(*c_black)
@@ -947,19 +959,13 @@ def draw_single_small_larry(sl):
     scale_small = 0.13
     glScalef(scale_small, scale_small, scale_small)
 
-    if sl.charmed:
-        c_body = (0.1, 0.85, 1.0)
-        c_dark = (0.0, 0.50, 0.85)
-        c_inner_ear = (0.7, 0.95, 1.0)
-    elif sl.hit_flash > 0:
+    if sl.hit_flash > 0:
         c_body = (1.0, 0.3, 0.3)
         c_dark = (0.8, 0.1, 0.1)
-        c_inner_ear  = (0.9, 0.7, 0.6)
     else:
         c_body = (212/255, 155/255, 95/255)
         c_dark = (140/255, 90/255, 45/255)
-        c_inner_ear  = (0.9, 0.7, 0.6)
-
+    c_inner_ear  = (0.9, 0.7, 0.6)
     c_eye_white  = (1.0, 1.0, 1.0)
     c_eye_black  = (0.05, 0.05, 0.05)
     c_nose_mouth = (0.95, 0.95, 0.95)
@@ -980,7 +986,7 @@ def draw_single_small_larry(sl):
     gluSphere(Q(), 50, 14, 14)
     glPopMatrix()
 
-    # 3. Pointed Ears
+    # 3. Pointed Ears with Inner Ear Triangles
     for side, angle in [(-32, -8), (32, 8)]:
         glPushMatrix()
         glColor3f(*c_body)
@@ -998,7 +1004,7 @@ def draw_single_small_larry(sl):
         glEnd()
         glPopMatrix()
 
-    # 4. Eyes & Pupils
+    # 4. Prominent Eyes & Pupils
     for eye_x in [-22, 22]:
         glPushMatrix()
         glColor3f(*c_eye_white)
@@ -1029,16 +1035,6 @@ def draw_single_small_larry(sl):
     glutSolidCube(100)
     glPopMatrix()
 
-    # 6. Charmed Sparkle Halo
-    if sl.charmed:
-        glPointSize(6)
-        glBegin(GL_POINTS)
-        for ang in range(0, 360, 45):
-            r = math.radians(ang + sl.sparkle_rot)
-            glColor3f(0.2, 0.95, 1.0)
-            glVertex3f(math.cos(r) * 75, math.sin(r) * 75, 120)
-        glEnd()
-
     glPopMatrix()
 
 def draw_bombs():
@@ -1055,19 +1051,6 @@ def draw_bombs():
         gluSphere(Q(), 1.4, 6, 6)
         glPopMatrix()
 
-def draw_catnips():
-    for cn in catnips:
-        if not cn.alive:
-            continue
-        glPushMatrix()
-        glTranslatef(cn.x, cn.y, cn.z)
-        glRotatef(cn.rot, 1, 1, 0)
-        glColor3f(0.0, 0.70, 1.0)
-        glutSolidCube(5.0)
-        glColor3f(0.3, 0.95, 1.0)
-        gluSphere(Q(), 3.2, 8, 8)
-        glPopMatrix()
-
 def draw_explosions():
     for exp in explosions:
         if exp.life <= 0:
@@ -1075,18 +1058,12 @@ def draw_explosions():
         glPushMatrix()
         glTranslatef(exp.x, exp.y, exp.z)
         alpha = exp.life / float(exp.max_life)
-        if exp.is_blue:
-            glColor3f(0.1 * alpha, 0.85 * alpha, 1.0 * alpha)
-        else:
-            glColor3f(1.0 * alpha, 0.45 * alpha, 0.05 * alpha)
+        glColor3f(1.0 * alpha, 0.45 * alpha, 0.05 * alpha)
         gluSphere(Q(), exp.radius, 10, 10)
         glPointSize(4)
         glBegin(GL_POINTS)
         for p in exp.particles:
-            if exp.is_blue:
-                glColor3f(0.4 * alpha, 0.95 * alpha, 1.0 * alpha)
-            else:
-                glColor3f(1.0, 0.85 * alpha, 0.2 * alpha)
+            glColor3f(1.0, 0.85 * alpha, 0.2 * alpha)
             glVertex3f(p[0], p[1], p[2])
         glEnd()
         glPopMatrix()
@@ -1105,10 +1082,10 @@ def draw_hairballs_and_puddles():
         glPointSize(6)
         glBegin(GL_POINTS)
         for a in range(0, 360, 40):
-            rad_hb = math.radians(a + hb.rot)
+            rad = math.radians(a + hb.rot)
             glColor3f(0.40, 1.0, 0.20)
-            glVertex3f(math.cos(rad_hb) * 11.5, math.sin(rad_hb) * 11.5, 0)
-            glVertex3f(0, math.cos(rad_hb) * 11.5, math.sin(rad_hb) * 11.5)
+            glVertex3f(math.cos(rad) * 11.5, math.sin(rad) * 11.5, 0)
+            glVertex3f(0, math.cos(rad) * 11.5, math.sin(rad) * 11.5)
         glEnd()
         glPopMatrix()
 
@@ -1171,16 +1148,19 @@ def draw_boss_projectiles():
         glPushMatrix()
         glTranslatef(bp.x, bp.y, bp.z)
         glRotatef(bp.rot, 1, 0, 1)
+        # Glowing purple-magenta spherical energy projectile
         glColor3f(0.95, 0.20, 0.95)
         gluSphere(Q(), bp.radius, 12, 12)
+        # Inner energy core
         glColor3f(1.0, 0.85, 1.0)
         gluSphere(Q(), bp.radius * 0.55, 8, 8)
+        # Sparkle halo
         glPointSize(4)
         glBegin(GL_POINTS)
         for a in range(0, 360, 60):
-            rad_bp = math.radians(a + bp.rot)
+            rad = math.radians(a + bp.rot)
             glColor3f(1.0, 0.5, 1.0)
-            glVertex3f(math.cos(rad_bp) * (bp.radius + 3.0), math.sin(rad_bp) * (bp.radius + 3.0), 0)
+            glVertex3f(math.cos(rad) * (bp.radius + 3.0), math.sin(rad) * (bp.radius + 3.0), 0)
         glEnd()
         glPopMatrix()
 
@@ -1264,19 +1244,16 @@ def draw_crosshair():
     glMatrixMode(GL_MODELVIEW)
 
 def draw_hud():
-    # 1. Main Character Health Bar at BOTTOM LEFT corner (Level 3 Style)
+    # 1. Main Character Health Bar at BOTTOM LEFT corner
     pw, ph = 220, 16
     px, py = 25, 25
     player_pct = player_hits_left / float(MAX_PLAYER_HITS)
     draw_bar_2d(px, py, pw, ph, player_pct, (0.1, 0.9, 0.2), border_color=(0.9, 0.9, 0.9))
 
-    # Active Weapon Display
-    w_name = "BOMB / GRENADE" if active_weapon == "gun" else "GLOWING CATNIP"
-    draw_text(px, py + 26, f"WEAPON: {w_name} (Press 'F' to switch | Click LMB to shoot)", color=(0.0, 0.95, 1.0), font=GLUT_BITMAP_HELVETICA_18)
-
+    # Speedboost countdown above bottom left bar
     if speed_boost_duration_timer > 0:
         secs_left = speed_boost_duration_timer / 60.0
-        draw_text(px, py + 48, f'SPEED BOOST: {secs_left:.1f}s', color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
+        draw_text(px, py + 26, f'SPEED BOOST: {secs_left:.1f}s', color=(0.0, 0.95, 1.0), font=GLUT_BITMAP_HELVETICA_18)
 
     # 2. Cheat Mode text at TOP RIGHT corner
     if cheat_mode:
@@ -1289,26 +1266,22 @@ def draw_hud():
     by_hp     = WIN_H - 45
     by_shield = WIN_H - 66
 
+    # Boss Name Header
     draw_text_bold(WIN_W // 2 - 55, by_name, 'EVIL LARRY', color=(1.0, 0.25, 0.25), font=GLUT_BITMAP_HELVETICA_18)
 
-    # Top: Red HP
+    # 1. Health Bar at the TOP (Red)
     hp_pct = evil_larry_hp / EVIL_LARRY_MAX_HP
     draw_bar_2d(bx, by_hp, bar_w, bar_h, hp_pct, (1.0, 0.1, 0.1), border_color=(0.9, 0.9, 0.9))
 
-    # Bottom: Ash Shield
+    # 2. Shield Bar at the BOTTOM (Ash)
     shield_pct = evil_larry_shield / EVIL_LARRY_MAX_SHIELD
     draw_bar_2d(bx, by_shield, bar_w, bar_h, shield_pct, (0.55, 0.54, 0.51), border_color=(0.9, 0.9, 0.9))
 
-    # 4. Boss MEOWWWW Text
+    # 4. Boss MEOWWWW Text (2 seconds on screen)
     if meow_timer > 0:
         draw_text_bold(WIN_W // 2 - 250, WIN_H // 2 + 55, 'MEOWWWWWWWWWWWW!!!!!!!!!!!!!!!!!!', color=(1.0, 0.15, 0.15), font=GLUT_BITMAP_HELVETICA_18)
 
-    # 5. Pause Banner
-    if is_paused:
-        draw_text_bold(WIN_W // 2 - 120, WIN_H // 2 + 10, "=== GAME PAUSED ===", color=(1.0, 0.9, 0.1))
-        draw_text(WIN_W // 2 - 100, WIN_H // 2 - 20, "Press 'P' to Resume Combat", color=(1.0, 1.0, 1.0))
-
-    # 6. End Game Messages
+    # 5. End Game Messages
     if is_game_over:
         draw_text_bold(WIN_W // 2 - 120, WIN_H // 2 + 25, 'MISSION FAILED!', color=(1.0, 0.1, 0.1), font=GLUT_BITMAP_HELVETICA_18)
         draw_text_bold(WIN_W // 2 - 85, WIN_H // 2 - 15, 'Press R to retry.', color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
@@ -1317,6 +1290,7 @@ def draw_hud():
         draw_text_bold(WIN_W // 2 - 145, WIN_H // 2 + 35, 'CONGRATULATIONS!!!', color=(0.2, 1.0, 0.4), font=GLUT_BITMAP_HELVETICA_18)
         draw_text_bold(WIN_W // 2 - 340, WIN_H // 2 - 5, 'YOU HAVE DEFEATED EVIL LARRY AND SAVED THE WORLD!', color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
         draw_text_bold(WIN_W // 2 - 105, WIN_H // 2 - 45, 'Press R to play again.', color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
+
 
 # =============================================================================
 #  SPAWNING & COMBAT LOGIC
@@ -1332,19 +1306,19 @@ def spawn_one_small_larry():
     small_larrys.append(SmallLarry(sx, sz))
     small_larrys_spawned_count += 1
 
-def fire_weapon():
-    global weapon_cooldown, arm_throw_timer
-
-    if weapon_cooldown > 0 or is_game_over or is_level_cleared or is_paused:
+def throw_bomb():
+    global bomb_cooldown, arm_throw_timer
+    if bomb_cooldown > 0 or is_game_over or is_level_cleared or is_paused:
         return
+    bomb_cooldown = BOMB_COOLDOWN_MAX
+    arm_throw_timer = 12
 
-    weapon_cooldown = WEAPON_COOLDOWN_MAX
-    arm_throw_timer = 14
-
+    # Fixed Controlled Launch Angle (clamped pitch between -10 deg and 25 deg)
     clamped_pitch = max(-10.0, min(25.0, player_pitch))
     rad = math.radians(player_yaw)
     rad_pitch = math.radians(clamped_pitch)
 
+    # Spawn from character's right hand
     bx = player_pos[0] + math.sin(rad) * 8.0 + math.cos(rad) * 6.0
     by = player_pos[1] + 16.0
     bz = player_pos[2] + math.cos(rad) * 8.0 - math.sin(rad) * 6.0
@@ -1354,10 +1328,7 @@ def fire_weapon():
     vy = math.sin(rad_pitch) * throw_speed + 0.35
     vz = math.cos(rad) * math.cos(rad_pitch) * throw_speed
 
-    if active_weapon == "gun":
-        bombs.append(Bomb(bx, by, bz, vx, vy, vz))
-    else:
-        catnips.append(CatnipProjectile(bx, by, bz, vx, vy, vz))
+    bombs.append(Bomb(bx, by, bz, vx, vy, vz))
 
 # =============================================================================
 #  IDLE GAME UPDATE LOOP
@@ -1368,14 +1339,14 @@ def idle():
     global speed_boost_duration_timer, player_invulnerable_timer
     global evil_larry_pos, evil_larry_yaw, evil_larry_shield, evil_larry_hp
     global evil_larry_shield_broken, evil_larry_hit_flash, small_pillars_destroyed
-    global weapon_cooldown, is_game_over, is_level_cleared, score, meow_timer
+    global bomb_cooldown, is_game_over, is_level_cleared, score, meow_timer
     global player_yaw, player_pitch, last_mouse_x, last_mouse_y, mouse_initialized
 
     if is_paused or is_game_over or is_level_cleared:
         glutPostRedisplay()
         return
 
-    # Update Mouse Aiming
+    # Update Mouse Movement Aiming (Aim follows mouse cursor continuously)
     try:
         class _POINT(ctypes.Structure):
             _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
@@ -1404,6 +1375,7 @@ def idle():
             is_jumping = False
             y_velocity = 0.0
 
+    # Update Speed Boost Timers
     if speed_boost_duration_timer > 0:
         speed_boost_duration_timer -= 1
 
@@ -1413,8 +1385,8 @@ def idle():
     if evil_larry_hit_flash > 0:
         evil_larry_hit_flash -= 1
 
-    if weapon_cooldown > 0:
-        weapon_cooldown -= 1
+    if bomb_cooldown > 0:
+        bomb_cooldown -= 1
 
     if arm_throw_timer > 0:
         arm_throw_timer -= 1
@@ -1433,9 +1405,11 @@ def idle():
             d = math.sqrt((player_pos[0]-item.x)**2 + (player_pos[2]-item.z)**2)
             if d < 18.0:
                 item.active = False
-                speed_boost_duration_timer = 360
+                speed_boost_duration_timer = 360  # 6 seconds
 
-    # Boss Hairball Power
+    # -------------------------------------------------------------------------
+    #  BOSS POWER 1: Hairball Projectile (Every 30 seconds)
+    # -------------------------------------------------------------------------
     global hairball_timer
     if evil_larry_hp > 0:
         hairball_timer -= 1
@@ -1465,7 +1439,9 @@ def idle():
             if player_hits_left <= 0:
                 is_game_over = True
 
-    # Boss Pounce Power
+    # -------------------------------------------------------------------------
+    #  BOSS POWER 2: Pounce Slam (Power Jump - Unlocked only after Shield is Broken)
+    # -------------------------------------------------------------------------
     global pounce_timer, pounce_state, pounce_sub_timer, pounce_target, pounce_start
     global pounce_shockwave_r, pounce_shockwave_life
 
@@ -1473,6 +1449,7 @@ def idle():
         pounce_shockwave_life -= 1
         pounce_shockwave_r += 2.4
 
+    # Evil Larry stays stationary and cannot use Power Jump until shield is depleted!
     if evil_larry_hp > 0 and evil_larry_shield_broken:
         if pounce_state == 'IDLE':
             pounce_timer -= 1
@@ -1512,7 +1489,9 @@ def idle():
                     if player_hits_left <= 0:
                         is_game_over = True
 
-    # Boss Spherical Projectiles
+    # -------------------------------------------------------------------------
+    #  BOSS POWER 3: Spherical Projectiles (Span of 4 to 5s, blocked by pillars)
+    # -------------------------------------------------------------------------
     global boss_spherical_timer
     if evil_larry_hp > 0 and pounce_state == 'IDLE':
         boss_spherical_timer -= 1
@@ -1528,6 +1507,7 @@ def idle():
         if not bp.alive:
             boss_projectiles.remove(bp)
             continue
+        # Player hit check
         d_p = math.sqrt((player_pos[0] - bp.x)**2 + (player_pos[2] - bp.z)**2)
         if d_p < (16.0 + bp.radius) and abs(player_pos[1] + 16.0 - bp.y) < 22.0:
             bp.alive = False
@@ -1539,62 +1519,23 @@ def idle():
                 if player_hits_left <= 0:
                     is_game_over = True
 
-    # Small Larry Spawn & AI Logic
+    # Small Larry Spawn & Chase
     if not evil_larry_shield_broken:
         while len([sl for sl in small_larrys if sl.alive]) < MAX_ACTIVE_SMALL_LARRY and small_larrys_spawned_count < TOTAL_SMALL_LARRY_ALLOWED:
             spawn_one_small_larry()
 
-    for sl in list(small_larrys):
-        if not sl.alive:
-            continue
+    for sl in small_larrys:
+        sl.update(player_pos[0], player_pos[2])
+        if sl.alive and player_invulnerable_timer <= 0:
+            d = math.sqrt((player_pos[0]-sl.x)**2 + (player_pos[2]-sl.z)**2)
+            if d < 14.0:
+                if not cheat_mode:
+                    player_hits_left -= 1
+                    player_invulnerable_timer = 60
+                    if player_hits_left <= 0:
+                        is_game_over = True
 
-        sl.update(player_pos[0], player_pos[2], evil_larry_pos[0], evil_larry_pos[2])
-
-        # If Charmed: check impact with Big Larry's Shield!
-        if sl.charmed:
-            d_to_boss = math.sqrt((sl.x - evil_larry_pos[0])**2 + (sl.z - evil_larry_pos[2])**2)
-            if d_to_boss < 38.0 and evil_larry_hp > 0:
-                sl.alive = False
-                evil_larry_hit_flash = 12
-                explosions.append(Explosion(evil_larry_pos[0], 25.0, evil_larry_pos[2], max_r=28.0, is_blue=True))
-
-                if evil_larry_shield > 0:
-                    evil_larry_shield = max(0.0, evil_larry_shield - 60.0)
-                    print(f">> Charmed Small Larry destroyed section of Big Larry's Shield! Shield remaining: {evil_larry_shield}")
-                    if evil_larry_shield <= 0:
-                        evil_larry_shield_broken = True
-                        small_pillars_destroyed = True
-                        meow_timer = 120
-                        # All remaining Small Larries disappear when shield breaks!
-                        for rem_sl in small_larrys:
-                            if rem_sl.alive:
-                                rem_sl.alive = False
-                                explosions.append(Explosion(rem_sl.x, 10.0, rem_sl.z, max_r=20.0))
-                        small_larrys.clear()
-                        for k in range(INNER_COUNT):
-                            ang = 2*math.pi * k / INNER_COUNT
-                            px = INNER_RING_R * math.cos(ang)
-                            pz = INNER_RING_R * math.sin(ang)
-                            explosions.append(Explosion(px, 15.0, pz, max_r=18.0))
-        else:
-            if player_invulnerable_timer <= 0:
-                d = math.sqrt((player_pos[0]-sl.x)**2 + (player_pos[2]-sl.z)**2)
-                if d < 14.0:
-                    if not cheat_mode:
-                        player_hits_left -= 1
-                        player_invulnerable_timer = 60
-                        if player_hits_left <= 0:
-                            is_game_over = True
-
-    # If shield is broken, ensure all remaining Small Larries are cleared
-    if evil_larry_shield_broken and len(small_larrys) > 0:
-        for sl in small_larrys:
-            if sl.alive:
-                sl.alive = False
-                explosions.append(Explosion(sl.x, 10.0, sl.z, max_r=20.0))
-        small_larrys.clear()
-
-    # Evil Larry Boss AI
+    # Evil Larry Facing & Movement
     if evil_larry_hp > 0:
         dx = player_pos[0] - evil_larry_pos[0]
         dz = player_pos[2] - evil_larry_pos[2]
@@ -1622,10 +1563,12 @@ def idle():
             continue
 
         exploded = False
+        # Ground hit
         if b.y <= 0.0:
             exploded = True
             explosions.append(Explosion(b.x, 2.0, b.z, max_r=16.0))
 
+        # Pillar hits
         if not exploded:
             for k in range(OUTER_COUNT):
                 ang = 2 * math.pi * k / OUTER_COUNT
@@ -1648,6 +1591,7 @@ def idle():
                     explosions.append(Explosion(b.x, b.y, b.z, max_r=16.0))
                     break
 
+        # Boss hit
         if not exploded:
             d_boss = math.sqrt((b.x - evil_larry_pos[0])**2 + (b.z - evil_larry_pos[2])**2)
             if d_boss < 42.0 and b.y < 85.0 and evil_larry_hp > 0:
@@ -1660,13 +1604,7 @@ def idle():
                     if evil_larry_shield <= 0:
                         evil_larry_shield_broken = True
                         small_pillars_destroyed = True
-                        meow_timer = 120
-                        # All remaining Small Larries disappear when shield breaks!
-                        for rem_sl in small_larrys:
-                            if rem_sl.alive:
-                                rem_sl.alive = False
-                                explosions.append(Explosion(rem_sl.x, 10.0, rem_sl.z, max_r=20.0))
-                        small_larrys.clear()
+                        meow_timer = 120  # MEOWWWW displayed for 2 seconds (120 frames)
                         for k in range(INNER_COUNT):
                             ang = 2*math.pi * k / INNER_COUNT
                             px = INNER_RING_R * math.cos(ang)
@@ -1682,6 +1620,7 @@ def idle():
                             rz = evil_larry_pos[2] + random.uniform(-30, 30)
                             explosions.append(Explosion(rx, ry, rz, max_r=30.0))
 
+        # Small Larry hits
         if not exploded:
             for sl in small_larrys:
                 if not sl.alive:
@@ -1702,33 +1641,6 @@ def idle():
 
         if exploded and b in bombs:
             bombs.remove(b)
-
-    # Catnips Update & Charming Collisions
-    for cn in list(catnips):
-        cn.update()
-        if not cn.alive:
-            catnips.remove(cn)
-            continue
-
-        hit_event = False
-        if cn.y <= 0.0:
-            hit_event = True
-            explosions.append(Explosion(cn.x, 2.0, cn.z, max_r=18.0, is_blue=True))
-
-        if not hit_event:
-            for sl in small_larrys:
-                if not sl.alive or sl.charmed:
-                    continue
-                d_sl = math.sqrt((cn.x - sl.x)**2 + (cn.z - sl.z)**2)
-                if d_sl < 24.0 and cn.y < 35.0:
-                    hit_event = True
-                    sl.charmed = True
-                    explosions.append(Explosion(sl.x, 10.0, sl.z, max_r=22.0, is_blue=True))
-                    print(">> Small Larry CHARMED by Catnip! Running towards Big Larry to destroy shield!")
-                    break
-
-        if hit_event and cn in catnips:
-            catnips.remove(cn)
 
     # Explosions Update
     for exp in list(explosions):
@@ -1761,6 +1673,7 @@ def setup_camera():
         center_z = eye_z + math.cos(rad) * math.cos(rad_pitch) * 100.0
         gluLookAt(eye_x, eye_y, eye_z, center_x, center_y, center_z, 0, 1, 0)
     else:
+        # 3rd Person Follow Camera Behind Character
         eye_x = player_pos[0] - math.sin(rad) * cam_dist
         eye_y = player_pos[1] + cam_height
         eye_z = player_pos[2] - math.cos(rad) * cam_dist
@@ -1772,6 +1685,10 @@ def setup_camera():
 def display():
     global WIN_W, WIN_H
 
+    # Keep WIN_W / WIN_H in sync with the ACTUAL current window size every
+    # frame (covers both a small window and a maximized/full window) so the
+    # viewport, projection and 2D HUD always fill the whole window instead
+    # of staying clamped to the original 1000x750 box.
     cur_w = glutGet(GLUT_WINDOW_WIDTH)
     cur_h = glutGet(GLUT_WINDOW_HEIGHT)
     if cur_w > 0 and cur_h > 0:
@@ -1781,12 +1698,13 @@ def display():
     glLoadIdentity()
     setup_camera()
 
-    # 1. Background Arena Floor & Ceilings
+    # 1. Background arena floor & ceiling accents
     draw_floor_occluder()
     draw_floor()
     draw_wall_rim_accent()
     draw_ceiling_rim()
 
+    # Camera eye position in world space
     rad = math.radians(player_yaw)
     rad_pitch = math.radians(player_pitch)
     if first_person:
@@ -1798,7 +1716,7 @@ def display():
         cam_y = player_pos[1] + cam_height
         cam_z = player_pos[2] - math.cos(rad) * cam_dist
 
-    # 2. Collect all 3D scene entities for Back-to-Front Depth Sorting
+    # 2. Collect all 3D scene entities with their (x, y, z) coordinates for Back-to-Front Depth Sorting
     render_list = []
 
     # Wall segments
@@ -1827,7 +1745,7 @@ def display():
             glPopMatrix()
         render_list.append((px, OUTER_HEIGHT * 0.5, pz, _draw_lp))
 
-    # Inner Small Pillars
+    # Inner Small Pillars (if not destroyed)
     if not small_pillars_destroyed:
         for k in range(INNER_COUNT):
             ang = 2 * math.pi * k / INNER_COUNT
@@ -1841,7 +1759,7 @@ def display():
                 glPopMatrix()
             render_list.append((px, INNER_HEIGHT * 0.5, pz, _draw_sp))
 
-    # Speedboost items
+    # Speedboost power-up items
     for item in speedboost_items:
         if item.active:
             def _draw_sb(item=item):
@@ -1858,7 +1776,7 @@ def display():
     if evil_larry_hp > 0:
         render_list.append((evil_larry_pos[0], evil_larry_pos[1] + 35.0, evil_larry_pos[2], draw_evil_larry_boss))
 
-    # Player Character
+    # Player Character (Tung Tung Tung Sahur)
     if not first_person:
         render_list.append((player_pos[0], player_pos[1] + 16.0, player_pos[2], lambda: draw_tung_tung_sahur(cam_x, cam_z)))
 
@@ -1884,20 +1802,6 @@ def display():
                 glPopMatrix()
             render_list.append((b.x, b.y, b.z, _draw_bomb))
 
-    # Catnips
-    for cn in catnips:
-        if cn.alive:
-            def _draw_cn(cn=cn):
-                glPushMatrix()
-                glTranslatef(cn.x, cn.y, cn.z)
-                glRotatef(cn.rot, 1, 1, 0)
-                glColor3f(0.0, 0.70, 1.0)
-                glutSolidCube(5.0)
-                glColor3f(0.3, 0.95, 1.0)
-                gluSphere(Q(), 3.2, 8, 8)
-                glPopMatrix()
-            render_list.append((cn.x, cn.y, cn.z, _draw_cn))
-
     # Explosions
     for exp in explosions:
         if exp.life > 0:
@@ -1905,18 +1809,12 @@ def display():
                 glPushMatrix()
                 glTranslatef(exp.x, exp.y, exp.z)
                 alpha = exp.life / float(exp.max_life)
-                if exp.is_blue:
-                    glColor3f(0.1 * alpha, 0.85 * alpha, 1.0 * alpha)
-                else:
-                    glColor3f(1.0 * alpha, 0.45 * alpha, 0.05 * alpha)
+                glColor3f(1.0 * alpha, 0.45 * alpha, 0.05 * alpha)
                 gluSphere(Q(), exp.radius, 10, 10)
                 glPointSize(4)
                 glBegin(GL_POINTS)
                 for p in exp.particles:
-                    if exp.is_blue:
-                        glColor3f(0.4 * alpha, 0.95 * alpha, 1.0 * alpha)
-                    else:
-                        glColor3f(1.0, 0.85 * alpha, 0.2 * alpha)
+                    glColor3f(1.0, 0.85 * alpha, 0.2 * alpha)
                     glVertex3f(p[0], p[1], p[2])
                 glEnd()
                 glPopMatrix()
@@ -1994,17 +1892,18 @@ def display():
                 glPopMatrix()
             render_list.append((bp.x, bp.y, bp.z, _draw_bp))
 
-    # 3. Sort entities Back-to-Front
+    # 3. Sort all 3D entities from furthest to nearest (Back-to-Front Painter's Algorithm)
     def _dist_sq(entity):
         ex, ey, ez, fn = entity
         return (ex - cam_x)**2 + (ey - cam_y)**2 + (ez - cam_z)**2
 
     render_list.sort(key=_dist_sq, reverse=True)
 
+    # 4. Render all 3D entities in sorted order
     for ex, ey, ez, fn in render_list:
         fn()
 
-    # 4. 2D HUD & Crosshair
+    # 5. 2D HUD & Crosshair Overlay
     draw_crosshair()
     draw_hud()
 
@@ -2015,7 +1914,7 @@ def display():
 # =============================================================================
 def keyboard_listener(key, x, y):
     global player_pos, crouching, is_jumping, y_velocity
-    global first_person, is_paused, is_game_over, cheat_mode, active_weapon
+    global first_person, is_paused, is_game_over, cheat_mode
     global walk_anim_phase, is_moving, player_yaw, player_pitch
 
     try:
@@ -2026,6 +1925,8 @@ def keyboard_listener(key, x, y):
 
     rad = math.radians(player_yaw)
 
+    # Restricted modifier functions are not used.
+    # Uppercase W/A/S/D are treated as sprint movement.
     is_sprint = raw_ch in ['W', 'A', 'S', 'D']
 
     if speed_boost_duration_timer > 0:
@@ -2062,11 +1963,8 @@ def keyboard_listener(key, x, y):
             if not is_jumping:
                 is_jumping = True
                 y_velocity = jump_strength
-        elif ch == 'f':
-            active_weapon = "catnip" if active_weapon == "gun" else "gun"
-            print(f">> Active Weapon Toggled to: {active_weapon.upper()}")
-        elif ch == 'b':
-            fire_weapon()
+        elif ch == 'f' or ch == 'b':
+            throw_bomb()
         elif ch == 'v':
             first_person = not first_person
         elif ch == 'j':
@@ -2083,7 +1981,6 @@ def keyboard_listener(key, x, y):
             walk_anim_phase += 0.28 * (cur_speed / BASE_PLAYER_SPEED)
             is_moving = True
 
-    # Pause Toggle (P Key)
     if ch == 'p':
         is_paused = not is_paused
     elif ch == 'r':
@@ -2105,15 +2002,13 @@ def special_key_listener(key, x, y):
 def mouse_listener(button, state, x, y):
     if is_paused or is_game_over or is_level_cleared:
         return
-    try:
-        if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN:
-            fire_weapon()
-        elif button == GLUT_RIGHT_BUTTON and state == GLUT_DOWN:
-            global first_person
-            first_person = not first_person
-            glutPostRedisplay()
-    except Exception as e:
-        print(f"Mouse event error: {e}")
+    if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN:
+        throw_bomb()
+    elif button == GLUT_RIGHT_BUTTON and state == GLUT_DOWN:
+        global first_person
+        first_person = not first_person
+        glutPostRedisplay()
+
 
 # =============================================================================
 #  GAME RESET & ENTRY POINT
@@ -2122,17 +2017,16 @@ def reset_level_3():
     global player_pos, player_yaw, player_pitch, player_hits_left
     global evil_larry_pos, evil_larry_yaw, evil_larry_shield, evil_larry_hp
     global evil_larry_shield_broken, evil_larry_hit_flash, small_pillars_destroyed
-    global small_larrys_spawned_count, small_larrys, bombs, catnips, explosions
+    global small_larrys_spawned_count, small_larrys, bombs, explosions
     global speed_boost_duration_timer, is_game_over, is_level_cleared, is_paused, score
     global hairball_timer, hairballs, hairball_puddles
     global pounce_timer, pounce_state, pounce_sub_timer, pounce_shockwave_life
-    global boss_spherical_timer, boss_projectiles, meow_timer, active_weapon
+    global boss_spherical_timer, boss_projectiles, meow_timer
 
     player_pos   = [0.0, 0.0, -320.0]
     player_yaw   = 0.0
     player_pitch = 0.0
     player_hits_left = MAX_PLAYER_HITS
-    active_weapon = "gun"
 
     evil_larry_pos           = [0.0, 0.0, 0.0]
     evil_larry_yaw           = 180.0
@@ -2146,7 +2040,6 @@ def reset_level_3():
     small_larrys_spawned_count = 0
     small_larrys.clear()
     bombs.clear()
-    catnips.clear()
     explosions.clear()
 
     hairball_timer = HAIRBALL_COOLDOWN
@@ -2180,6 +2073,7 @@ def main():
     glutInitWindowSize(WIN_W, WIN_H)
     glutInitWindowPosition(60, 40)
     glutCreateWindow(b"9 Lives - Level 3: Boss Fight (Evil Larry)")
+
 
     glutDisplayFunc(display)
     glutIdleFunc(idle)
