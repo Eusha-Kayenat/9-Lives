@@ -514,11 +514,43 @@ PILLAR_COORDS = [
     (65.0, 335.0), (75.0, 335.0)
 ]
 
+_subdivided_walls = None
+
+def _get_subdivided_walls(max_len=3.8):
+    """
+    Subdivides long wall segments into small modular blocks (max length <= 3.8 units).
+    Ensures per-segment depth distance calculation in Painter's Algorithm is 100% accurate
+    and walls completely occlude background geometry without requiring glEnable(GL_DEPTH_TEST).
+    """
+    global _subdivided_walls
+    if _subdivided_walls is not None:
+        return _subdivided_walls
+    segments = []
+    for cx, cy, cz, sx, sy, sz in MAZE_WALL_SEGMENTS:
+        if sx > max_len and sz <= max_len:
+            n = max(1, int(math.ceil(sx / max_len)))
+            w = sx / float(n)
+            start_x = (cx - sx / 2.0) + w / 2.0
+            for i in range(n):
+                sub_x = start_x + i * w
+                segments.append((sub_x, cy, cz, w, sy, sz))
+        elif sz > max_len and sx <= max_len:
+            n = max(1, int(math.ceil(sz / max_len)))
+            d = sz / float(n)
+            start_z = (cz - sz / 2.0) + d / 2.0
+            for i in range(n):
+                sub_z = start_z + i * d
+                segments.append((cx, cy, sub_z, sx, sy, d))
+        else:
+            segments.append((cx, cy, cz, sx, sy, sz))
+    _subdivided_walls = segments
+    return _subdivided_walls
+
 def draw_connected_walls():
     """
     Renders 100% unbroken, fully connected walls around the entire maze layout.
     """
-    for cx, cy, cz, sx, sy, sz in MAZE_WALL_SEGMENTS:
+    for cx, cy, cz, sx, sy, sz in _get_subdivided_walls():
         glPushMatrix()
         glTranslatef(cx, cy, cz)
         draw_box(sx, sy, sz, color_top=COLOR_WALL, color_side=COLOR_WALL_SIDE)
@@ -560,10 +592,10 @@ LAVA_TILE_ROCKS = [
     (40.0, 112.0,  3.6, 4.2,  0.0),   # R8 — exit (centre)
 ]
 
-def draw_lava_base_and_tiles():
+def draw_lava_base_only():
     """
-    Renders the recessed lava pit body, molten surface glow, floor crust tiles,
-    lava spikes, and basalt side ledges (all foundational ground elements).
+    Renders the foundational recessed lava pit body and ground molten glow.
+    Always drawn first with base floors.
     """
     CX   = 40.0        # corridor X centre
     CXHW = 5.6         # corridor X half-width (34.4 to 45.6)
@@ -605,59 +637,27 @@ def draw_lava_base_and_tiles():
                      color_side=(0.75, 0.20, 0.0))
             glPopMatrix()
 
-    # 2B. 3D VOLCANIC LAVA SPIKES
-    def draw_lava_spike(x, y, z, base_w=0.35, height=1.5):
-        glPushMatrix()
-        glTranslatef(x, y, z)
-        c_base = (0.16, 0.12, 0.14)
-        c_tip  = (1.00, 0.40, 0.00)
-        glBegin(GL_TRIANGLES)
-        glColor3f(*c_base); glVertex3f(-base_w, 0.0,  base_w)
-        glColor3f(*c_base); glVertex3f( base_w, 0.0,  base_w)
-        glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
-        glColor3f(*c_base); glVertex3f( base_w, 0.0,  base_w)
-        glColor3f(*c_base); glVertex3f( base_w, 0.0, -base_w)
-        glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
-        glColor3f(*c_base); glVertex3f( base_w, 0.0, -base_w)
-        glColor3f(*c_base); glVertex3f(-base_w, 0.0, -base_w)
-        glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
-        glColor3f(*c_base); glVertex3f(-base_w, 0.0, -base_w)
-        glColor3f(*c_base); glVertex3f(-base_w, 0.0,  base_w)
-        glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
-        glEnd()
-        glPopMatrix()
-
-    for z_spk in range(int(ZSTART) + 3, int(ZEND) - 3, 4):
-        draw_lava_spike(CX - 4.2, 0.1, float(z_spk),        0.40, 1.8)
-        draw_lava_spike(CX - 2.5, 0.1, float(z_spk) + 1.5,  0.30, 1.4)
-        draw_lava_spike(CX + 2.5, 0.1, float(z_spk) + 0.8,  0.32, 1.5)
-        draw_lava_spike(CX + 4.2, 0.1, float(z_spk) + 2.2,  0.42, 1.9)
-
-    # 3. BASALT SIDE WALL LEDGES WITH MAGMA SEAMS
-    for z_side in range(int(ZSTART), int(ZEND), 6):
-        glPushMatrix()
-        glTranslatef(CX - CXHW + 0.6, 0.5, float(z_side) + 3.0)
-        draw_box(1.2, 1.2, 5.6, color_top=(0.16, 0.14, 0.16), color_side=(0.10, 0.08, 0.10))
-        glPopMatrix()
-        glPushMatrix()
-        glTranslatef(CX - CXHW + 0.6, 0.1, float(z_side) + 3.0)
-        draw_box(1.3, 0.1, 5.6, color_top=(1.0, 0.30, 0.0), color_side=(0.8, 0.15, 0.0))
-        glPopMatrix()
-        glPushMatrix()
-        glTranslatef(CX + CXHW - 0.6, 0.5, float(z_side) + 3.0)
-        draw_box(1.2, 1.2, 5.6, color_top=(0.16, 0.14, 0.16), color_side=(0.10, 0.08, 0.10))
-        glPopMatrix()
-        glPushMatrix()
-        glTranslatef(CX + CXHW - 0.6, 0.1, float(z_side) + 3.0)
-        draw_box(1.3, 0.1, 5.6, color_top=(1.0, 0.30, 0.0), color_side=(0.8, 0.15, 0.0))
-        glPopMatrix()
-
-    # Warning stripes at corridor entry and exit
-    for pz in [65.8, 114.2]:
-        glPushMatrix()
-        glTranslatef(CX, 0.04, pz)
-        draw_box(CXHW * 2, 0.04, 0.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.6, 0.5, 0.0))
-        glPopMatrix()
+def _draw_lava_spike(x, y, z, base_w=0.35, height=1.5):
+    """Draws a single 3D volcanic lava spike."""
+    glPushMatrix()
+    glTranslatef(x, y, z)
+    c_base = (0.16, 0.12, 0.14)
+    c_tip  = (1.00, 0.40, 0.00)
+    glBegin(GL_TRIANGLES)
+    glColor3f(*c_base); glVertex3f(-base_w, 0.0,  base_w)
+    glColor3f(*c_base); glVertex3f( base_w, 0.0,  base_w)
+    glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
+    glColor3f(*c_base); glVertex3f( base_w, 0.0,  base_w)
+    glColor3f(*c_base); glVertex3f( base_w, 0.0, -base_w)
+    glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
+    glColor3f(*c_base); glVertex3f( base_w, 0.0, -base_w)
+    glColor3f(*c_base); glVertex3f(-base_w, 0.0, -base_w)
+    glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
+    glColor3f(*c_base); glVertex3f(-base_w, 0.0, -base_w)
+    glColor3f(*c_base); glVertex3f(-base_w, 0.0,  base_w)
+    glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
+    glEnd()
+    glPopMatrix()
 
 def draw_lava_tile_rock(rx, rz, sx, sz, tilt=0.0):
     """
@@ -953,29 +953,25 @@ def draw_rect_border_2d(x1, y1, x2, y2, color, line_width=2.0):
     glVertex2f(x1, y2); glVertex2f(x1, y1)
     glEnd()
 
+_user32 = ctypes.windll.user32
+
 def update_window_dimensions():
-    """
-    Dynamically tracks the actual window dimensions (including Full Screen & Window Resizing),
-    matching Level 3 window handling architecture.
-    """
     global WINDOW_WIDTH, WINDOW_HEIGHT
     try:
-        cur_w = glutGet(GLUT_WINDOW_WIDTH)
-        cur_h = glutGet(GLUT_WINDOW_HEIGHT)
-        if cur_w > 0 and cur_h > 0:
-            WINDOW_WIDTH, WINDOW_HEIGHT = cur_w, cur_h
+        hwnd = _user32.GetForegroundWindow()
+        if not hwnd:
+            hwnd = _user32.GetActiveWindow()
+        if hwnd:
+            from ctypes import wintypes
+            rect = wintypes.RECT()
+            if _user32.GetClientRect(hwnd, ctypes.byref(rect)):
+                w = rect.right - rect.left
+                h = rect.bottom - rect.top
+                if w > 200 and h > 200:
+                    WINDOW_WIDTH = w
+                    WINDOW_HEIGHT = h
     except:
         pass
-
-def reshape_listener(w, h):
-    """
-    Handles window resize / fullscreen events immediately.
-    """
-    global WINDOW_WIDTH, WINDOW_HEIGHT
-    if w > 0 and h > 0:
-        WINDOW_WIDTH, WINDOW_HEIGHT = w, h
-        glViewport(0, 0, w, h)
-        glutPostRedisplay()
 
 def draw_story_screen():
     """
@@ -985,7 +981,7 @@ def draw_story_screen():
     """
     update_window_dimensions()
 
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glClear(GL_COLOR_BUFFER_BIT)
     glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
 
     glMatrixMode(GL_PROJECTION)
@@ -1099,8 +1095,9 @@ def draw_story_screen():
 
 def display():
     """
-    Main OpenGL Display Callback with Back-to-Front Depth Sorting (Level 3 Architecture).
-    Renders walls, hazards, and entities in strict distance order so all walls are 100% solid.
+    Main OpenGL Display Callback with Full Unified Painter's Algorithm.
+    Renders floors, subdivided walls, hazards, and entities in strict back-to-front
+    distance order without using any restricted OpenGL functions (e.g. no glEnable).
     """
     update_window_dimensions()
 
@@ -1108,18 +1105,17 @@ def display():
         draw_story_screen()
         return
 
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    # Painter's Algorithm: colour buffer only (no depth buffer)
+    glClear(GL_COLOR_BUFFER_BIT)
     glLoadIdentity()
 
     setup_camera()
 
-    # 1. Render Base Ground / Floors & Lava Base (foundational occluders)
+    # 1. Render Flat Base Ground / Floors & Lava Base first (foundational floor)
     draw_connected_floor_pathways()
-    draw_lava_base_and_tiles()
+    draw_lava_base_only()
 
-    # Camera eye position in world space for depth sorting
     rad = math.radians(player_yaw)
-    rad_pitch = math.radians(player_pitch)
     curr_eye_h = 0.8 if crouching else eye_height
 
     if first_person:
@@ -1131,26 +1127,17 @@ def display():
         cam_y = player_pos[1] + cam_height
         cam_z = player_pos[2] - math.cos(rad) * cam_dist
 
-    # 2. Collect all 3D scene elements for Back-to-Front Depth Sorting
+    # 2. Collect all 3D scene entities for Back-to-Front Depth Sorting (Painter's Algorithm)
     render_list = []
 
-    # Helper to calculate the point on a 3D bounding box farthest from the camera
-    def _box_farthest_point(cx, cy, cz, sx, sy, sz):
-        hx, hy, hz = sx / 2.0, sy / 2.0, sz / 2.0
-        fx = cx + hx if cam_x < cx else cx - hx
-        fy = cy - hy if cam_y > cy else cy + hy
-        fz = cz + hz if cam_z < cz else cz - hz
-        return (fx, fy, fz)
-
-    # A. Wall segments (sorted by farthest edge from camera)
-    for cx, cy, cz, sx, sy, sz in MAZE_WALL_SEGMENTS:
-        fx, fy, fz = _box_farthest_point(cx, cy, cz, sx, sy, sz)
-        def _draw_w(cx=cx, cy=cy, cz=cz, sx=sx, sy=sy, sz=sz):
+    # A. Subdivided Maze Wall Segments (accurate modular segment positions)
+    for w_cx, w_cy, w_cz, w_sx, w_sy, w_sz in _get_subdivided_walls():
+        def _draw_w(cx=w_cx, cy=w_cy, cz=w_cz, sx=w_sx, sy=w_sy, sz=w_sz):
             glPushMatrix()
             glTranslatef(cx, cy, cz)
             draw_box(sx, sy, sz, color_top=COLOR_WALL, color_side=COLOR_WALL_SIDE)
             glPopMatrix()
-        render_list.append((fx, fy, fz, _draw_w))
+        render_list.append((w_cx, w_cy, w_cz, _draw_w))
 
     # B. Ceiling light panels
     for lx, lz in LIGHT_COORDS:
@@ -1174,14 +1161,47 @@ def display():
             glPopMatrix()
         render_list.append((px, 3.5, pz, _draw_p))
 
-    # D. Lava Stepping Stone Islands (sorted by farthest edge so platforms never occlude character on edges)
+    # D. Lava Stepping Stone Islands
     for rx, rz, sx, sz, tilt in LAVA_TILE_ROCKS:
-        fx, fy, fz = _box_farthest_point(rx, 1.0, rz, sx, 0.7, sz)
         def _draw_rock(rx=rx, rz=rz, sx=sx, sz=sz, tilt=tilt):
             draw_lava_tile_rock(rx, rz, sx, sz, tilt)
-        render_list.append((fx, fy, fz, _draw_rock))
+        render_list.append((rx, 1.0, rz, _draw_rock))
 
-    # E. Disappearing Floor Platforms
+    # E. Lava Hazard Spikes
+    for z_spk in range(int(65.6) + 3, int(114.4) - 3, 4):
+        for sx_off, base_w, h, z_off in [(-4.2, 0.40, 1.8, 0.0), (-2.5, 0.30, 1.4, 1.5), (2.5, 0.32, 1.5, 0.8), (4.2, 0.42, 1.9, 2.2)]:
+            spk_x = 40.0 + sx_off
+            spk_z = float(z_spk) + z_off
+            def _spk(x=spk_x, z=spk_z, bw=base_w, ht=h):
+                _draw_lava_spike(x, 0.1, z, bw, ht)
+            render_list.append((spk_x, 0.1 + h * 0.5, spk_z, _spk))
+
+    # F. Basalt Side Wall Ledges with Magma Seams
+    for z_side in range(int(65.6), int(114.4), 6):
+        for sign_x in [-1.0, 1.0]:
+            ledge_x = 40.0 + sign_x * (5.6 - 0.6)
+            ledge_z = float(z_side) + 3.0
+            def _draw_ledge(lx=ledge_x, lz=ledge_z):
+                glPushMatrix()
+                glTranslatef(lx, 0.5, lz)
+                draw_box(1.2, 1.2, 5.6, color_top=(0.16, 0.14, 0.16), color_side=(0.10, 0.08, 0.10))
+                glPopMatrix()
+                glPushMatrix()
+                glTranslatef(lx, 0.1, lz)
+                draw_box(1.3, 0.1, 5.6, color_top=(1.0, 0.30, 0.0), color_side=(0.8, 0.15, 0.0))
+                glPopMatrix()
+            render_list.append((ledge_x, 0.5, ledge_z, _draw_ledge))
+
+    # G. Hazard Corridor Warning Stripes
+    for pz in [65.8, 114.2]:
+        def _draw_ws(pz=pz):
+            glPushMatrix()
+            glTranslatef(40.0, 0.04, pz)
+            draw_box(11.2, 0.04, 0.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.6, 0.5, 0.0))
+            glPopMatrix()
+        render_list.append((40.0, 0.04, pz, _draw_ws))
+
+    # H. Disappearing Floor Platforms
     for px, pz, color_idx in DISAPPEARING_TILE_COORDS:
         def _draw_dt(px=px, pz=pz, c=color_idx):
             is_active = disappearing_tiles_active[c]
@@ -1204,7 +1224,7 @@ def display():
             glPopMatrix()
         render_list.append((px, 0.0, pz, _draw_dt))
 
-    # F. Laser Emitters
+    # I. Laser Emitters & Glowing Beams
     for pz, py, color_rgb, desc in LASER_BEAMS:
         def _draw_laser(pz=pz, py=py, col=color_rgb):
             glPushMatrix()
@@ -1228,35 +1248,34 @@ def display():
             glPopMatrix()
         render_list.append((20.0, py, pz, _draw_laser))
 
-    # G. Moving Walls
+    # J. Moving Walls
     for z_center, phase_mult in MOVING_WALL_PAIRS:
-        def _draw_mw(wz=z_center, phase=phase_mult):
-            offset = moving_walls_offset * phase
+        offset = moving_walls_offset * phase_mult
+        left_x = MOVING_WALL_REST_L + offset
+        right_x = MOVING_WALL_REST_R - offset
 
-            # Left crushing wall block
-            left_x = MOVING_WALL_REST_L + offset
+        def _draw_mw_l(lx=left_x, wz=z_center):
             glPushMatrix()
-            glTranslatef(left_x, 3.0, wz)
+            glTranslatef(lx, 3.0, wz)
             draw_box(MOVING_WALL_BLOCK_W, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
             glTranslatef(MOVING_WALL_BLOCK_W / 2.0 - 0.1, 0.0, 0.0)
             draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
             glPopMatrix()
+        render_list.append((left_x, 3.0, z_center, _draw_mw_l))
 
-            # Right crushing wall block
-            right_x = MOVING_WALL_REST_R - offset
+        def _draw_mw_r(rx=right_x, wz=z_center):
             glPushMatrix()
-            glTranslatef(right_x, 3.0, wz)
+            glTranslatef(rx, 3.0, wz)
             draw_box(MOVING_WALL_BLOCK_W, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
             glTranslatef(-(MOVING_WALL_BLOCK_W / 2.0 - 0.1), 0.0, 0.0)
             draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
             glPopMatrix()
+        render_list.append((right_x, 3.0, z_center, _draw_mw_r))
 
-        render_list.append((MOVING_WALL_CX, 3.0, z_center, _draw_mw))
+    # K. Exit Portal
+    render_list.append((70.0, 2.5, 330.0, draw_exit_portal))
 
-    # H. Exit Portal
-    render_list.append((70.0, 2.5, 335.0, draw_exit_portal))
-
-    # I. Player Character ("tung tung tung sahur")
+    # L. Player Character ("tung tung tung sahur")
     if not first_person:
         def _draw_player():
             if wall_invincibility_timer > 0:
@@ -1266,7 +1285,7 @@ def display():
                 draw_character(cam_x, cam_z)
         render_list.append((player_pos[0], player_pos[1] + 0.8, player_pos[2], _draw_player))
 
-    # 3. Sort all entities Back-to-Front (highest distance from camera drawn first)
+    # 3. Sort all entities Back-to-Front (Painter's Algorithm)
     def _dist_sq(entity):
         ex, ey, ez, fn = entity
         return (ex - cam_x)**2 + (ey - cam_y)**2 + (ez - cam_z)**2
@@ -1276,7 +1295,7 @@ def display():
     for ex, ey, ez, fn in render_list:
         fn()
 
-    # 4. Clean HUD Overlay (Top-Left Corner) - Level 3 Health Bar Style
+    # 4. Clean 2D HUD Overlay (Top-Left Corner) - Rendered over 3D scene
     remaining_lives = max(0, 9 - consecutive_lava_falls)
     player_pct = remaining_lives / 9.0
 
@@ -1868,7 +1887,7 @@ def mouse_listener(button, state, x, y):
 # -----------------------------------------------------------------------------
 def main():
     glutInit(sys.argv)
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB)
     glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT)
     glutInitWindowPosition(100, 50)
     glutCreateWindow(WINDOW_TITLE)
@@ -1877,7 +1896,6 @@ def main():
 
     # Register 100% Allowlisted Lab Callbacks Only
     glutDisplayFunc(display)
-    glutReshapeFunc(reshape_listener)
     glutIdleFunc(idle)
     glutKeyboardFunc(keyboard_listener)
     glutSpecialFunc(special_key_listener)

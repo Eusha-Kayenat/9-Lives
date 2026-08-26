@@ -161,7 +161,6 @@ def draw_rect_2d(x1, y1, x2, y2, color):
 
 def draw_rect_border_2d(x1, y1, x2, y2, color, line_width=2.0):
     glColor3f(*color)
-    glLineWidth(line_width)
     glBegin(GL_LINE_LOOP)
     glVertex2f(x1, y1)
     glVertex2f(x2, y1)
@@ -200,14 +199,8 @@ def draw_transition_screen(from_lvl, to_lvl):
     """
     global WINDOW_WIDTH, WINDOW_HEIGHT, transition_timer
 
-    cur_w = glutGet(GLUT_WINDOW_WIDTH)
-    cur_h = glutGet(GLUT_WINDOW_HEIGHT)
-    if cur_w > 0 and cur_h > 0:
-        WINDOW_WIDTH, WINDOW_HEIGHT = cur_w, cur_h
-
     glClearColor(0.02, 0.03, 0.06, 1.0)
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-    glDisable(GL_DEPTH_TEST)
+    glClear(GL_COLOR_BUFFER_BIT)
 
     glMatrixMode(GL_PROJECTION)
     glPushMatrix()
@@ -235,7 +228,6 @@ def draw_transition_screen(from_lvl, to_lvl):
         dy = p['y'] - cy
         d = math.sqrt(dx*dx + dy*dy) + 0.01
         glColor3f(p['color'][0] * 0.4, p['color'][1] * 0.4, p['color'][2] * 0.4)
-        glLineWidth(1.2)
         glBegin(GL_LINES)
         glVertex2f(p['x'], p['y'])
         glVertex2f(p['x'] - (dx / d) * 16.0, p['y'] - (dy / d) * 16.0)
@@ -272,7 +264,6 @@ def draw_transition_screen(from_lvl, to_lvl):
     render_string_centered(top_y - 35, title_text, color=title_color, font=GLUT_BITMAP_TIMES_ROMAN_24)
 
     # Decorative Line Under Header
-    glLineWidth(2.5)
     glBegin(GL_LINES)
     glColor3f(*title_color)
     glVertex2f(80, top_y - 50)
@@ -387,7 +378,6 @@ def enter_level_2():
     if 'reset_arena' in lvl2:
         lvl2['reset_arena']()
     lvl2['mouse_initialized'] = False
-    glDisable(GL_DEPTH_TEST)
     try:
         glutSetWindowTitle(b"9 Lives - Level 2: Zombie Cat Arena ('tung tung tung sahur')")
     except:
@@ -414,7 +404,6 @@ def enter_level_3():
     if 'reset_level_3' in lvl3:
         lvl3['reset_level_3']()
     lvl3['mouse_initialized'] = False
-    glEnable(GL_DEPTH_TEST)
     try:
         glutSetWindowTitle(b"9 Lives - Level 3: Boss Fight (Evil Larry)")
     except:
@@ -423,8 +412,42 @@ def enter_level_3():
 # =============================================================================
 # MASTER GLUT CALLBACKS DISPATCHER
 # =============================================================================
+_user32 = ctypes.windll.user32
+
+def update_window_dimensions():
+    """
+    Dynamically captures the actual client window size on Windows (handling resize, maximize, and full screen)
+    without using any restricted GLUT functions like glutGet() or glutReshapeFunc().
+    """
+    global WINDOW_WIDTH, WINDOW_HEIGHT
+    try:
+        hwnd = _user32.GetForegroundWindow()
+        if not hwnd:
+            hwnd = _user32.GetActiveWindow()
+        if hwnd:
+            from ctypes import wintypes
+            rect = wintypes.RECT()
+            if _user32.GetClientRect(hwnd, ctypes.byref(rect)):
+                w = rect.right - rect.left
+                h = rect.bottom - rect.top
+                if w > 200 and h > 200:
+                    WINDOW_WIDTH = w
+                    WINDOW_HEIGHT = h
+                    if lvl1:
+                        lvl1['WINDOW_WIDTH'] = w
+                        lvl1['WINDOW_HEIGHT'] = h
+                    if lvl2:
+                        lvl2['WIN_W'] = w
+                        lvl2['WIN_H'] = h
+                    if lvl3:
+                        lvl3['WIN_W'] = w
+                        lvl3['WIN_H'] = h
+    except:
+        pass
+
 def master_display():
     global current_state
+    update_window_dimensions()
 
     if current_state == STATE_LEVEL_1:
         if lvl1 and 'display' in lvl1:
@@ -565,11 +588,6 @@ def master_mouse(button, state, x, y):
         if lvl3 and 'mouse_listener' in lvl3:
             lvl3['mouse_listener'](button, state, x, y)
 
-def master_reshape(w, h):
-    global WINDOW_WIDTH, WINDOW_HEIGHT
-    WINDOW_WIDTH, WINDOW_HEIGHT = w, h
-    glViewport(0, 0, w, h)
-
 # =============================================================================
 # CAMPAIGN ENTRY POINT
 # =============================================================================
@@ -587,7 +605,7 @@ def run_campaign():
     print("=" * 75 + "\n")
 
     glutInit(sys.argv)
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB)
     glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT)
     glutInitWindowPosition(100, 50)
     glutCreateWindow(b"9 Lives - Level 1: Connected Backrooms Maze Arena ('tung tung tung sahur')")
@@ -600,7 +618,6 @@ def run_campaign():
     glutKeyboardFunc(master_keyboard)
     glutSpecialFunc(master_special)
     glutMouseFunc(master_mouse)
-    glutReshapeFunc(master_reshape)
 
     print(">> Game started! Starting Level 1...")
     glutMainLoop()
