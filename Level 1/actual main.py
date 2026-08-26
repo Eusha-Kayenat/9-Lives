@@ -4,6 +4,7 @@
 ===============================================================================
 Main Character: "tung tung tung sahur"
 Course: CSE423 Computer Graphics Project
+STRICTLY ALLOWED OPENGL FUNCTIONS ONLY (From LAB 01, LAB 1.2, LAB 02, LAB 03)
 
 Design Theme:
 - Expansive 3D Backrooms Labyrinth Walkway with 100% SEAMLESS CONNECTED ROOMS & PATHWAYS
@@ -16,22 +17,25 @@ Design Theme:
   ==> [Corridor D (Z: 240)] ==> [Moving Walls (Z: 240->300)] ==> [Exit Portal (Z: 330)]
 
 Controls:
-- W / S / Up / Down     : Move Forward / Backward
+- W / S                 : Move Forward / Backward
 - A / D                 : Strafe Left / Right
-- Left / Right Arrows   : Turn Character / Camera Yaw
+- Mouse Movement        : Aim Camera Direction (Smooth Continuous Look-At - Level 3 style)
 - Spacebar              : Jump (Smooth velocity + gravity)
 - Left / Right Ctrl     : Crouch (Hitbox drops to 0.8 units)
 - V / Right-Click       : Toggle Camera View (1st Person POV <-> 3rd Person Follow)
+- C                     : Toggle God Mode Cheat
+- P                     : Pause / Resume
 - M                     : Toggle Moving Wall Shift Demo
 - T                     : Toggle Disappearing Platform Flash Demo
 - R                     : Reset Player Position to Start Hub
-- ESC                   : Exit Game
+- ESC / Q               : Exit Game
 ===============================================================================
 """
 
 import math
 import random
 import sys
+import ctypes
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
@@ -66,6 +70,11 @@ ground_y = 1.0                    # Floor level Y height
 first_person = False              # FPS (True) vs Third-Person Follow (False)
 cam_dist = 6.5                    # Distance behind player in 3rd person
 cam_height = 3.8                  # Height above player in 3rd person
+
+# Mouse Look Tracking (Level 3 Cursor System)
+last_mouse_x = 0
+last_mouse_y = 0
+mouse_initialized = False
 
 # Interactive Scaffolding Demo Toggles
 moving_walls_offset = 0.0         # Current shift for moving walls
@@ -179,9 +188,9 @@ def draw_box(sx, sy, sz, color_top=None, color_side=None):
     
     glEnd()
 
-def draw_text(x, y, text_str, color=(1.0, 1.0, 1.0)):
+def draw_text(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18):
     """
-    Renders 2D HUD text using GLUT_BITMAP_HELVETICA_18 with optional color parameter.
+    Renders 2D HUD text using allowlisted GLUT bitmap font with optional color and font parameters.
     """
     glColor3f(*color)
     glMatrixMode(GL_PROJECTION)
@@ -195,7 +204,7 @@ def draw_text(x, y, text_str, color=(1.0, 1.0, 1.0)):
     
     glRasterPos2f(x, y)
     for ch in text_str:
-        glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
+        glutBitmapCharacter(font, ord(ch))
         
     glPopMatrix()
     glMatrixMode(GL_PROJECTION)
@@ -215,7 +224,6 @@ def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(0.9, 0.9, 0.9)):
     glLoadIdentity()
 
     # Border frame
-    glLineWidth(1.5)
     glBegin(GL_LINES)
     glColor3f(*border_color)
     glVertex2f(x, y); glVertex2f(x + w, y)
@@ -243,9 +251,10 @@ def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(0.9, 0.9, 0.9)):
 # -----------------------------------------------------------------------------
 # Character Rendering: "tung tung tung sahur"
 # -----------------------------------------------------------------------------
-def draw_character():
+def draw_character(cam_x=0.0, cam_z=0.0):
     """
     Renders 3D character model for 'tung tung tung sahur' at player coordinates.
+    Backside faces camera when moving forward (Level 3 orientation & depth ordering).
     """
     if first_person:
         return
@@ -253,7 +262,7 @@ def draw_character():
     glPushMatrix()
     curr_y = player_pos[1]
     glTranslatef(player_pos[0], curr_y, player_pos[2])
-    glRotatef(player_yaw, 0, 1, 0)
+    glRotatef(player_yaw + 180.0, 0, 1, 0)
 
     # Align model Z (height) -> World Y, model Y (front) -> World Z
     glRotatef(-90, 1, 0, 0)
@@ -265,6 +274,65 @@ def draw_character():
     else:
         glScalef(scale_factor, scale_factor, scale_factor)
 
+    rad_yaw = math.radians(player_yaw)
+    fwd_x = math.sin(rad_yaw)
+    fwd_z = math.cos(rad_yaw)
+    to_cam_x = cam_x - player_pos[0]
+    to_cam_z = cam_z - player_pos[2]
+    # Check if camera is looking at character front (face) or back
+    is_front = (fwd_x * to_cam_x + fwd_z * to_cam_z) > 0.0
+
+    def draw_face_details():
+        # Goggles & Eyes (Left/Right)
+        for eye_x in [-16, 16]:
+            glPushMatrix()
+            glColor3f(*c_goggle)
+            glTranslatef(eye_x, 21, 160)
+            glScalef(0.28, 0.08, 0.35)
+            glutSolidCube(100)
+            glPopMatrix()
+
+            glPushMatrix()
+            glColor3f(*c_white)
+            glTranslatef(eye_x, 25, 160)
+            glScalef(0.18, 0.08, 0.22)
+            glutSolidCube(100)
+            glPopMatrix()
+
+            glPushMatrix()
+            glColor3f(*c_dark)
+            glTranslatef(eye_x, 29, 160)
+            glScalef(0.08, 0.05, 0.1)
+            glutSolidCube(100)
+            glPopMatrix()
+
+            # Eyebrow
+            glPushMatrix()
+            glColor3f(*c_dark)
+            glTranslatef(eye_x, 22, 185)
+            glScalef(0.25, 0.06, 0.06)
+            glutSolidCube(100)
+            glPopMatrix()
+
+        # Nose & Smirk
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(0, 22, 138)
+        glScalef(0.06, 0.06, 0.16)
+        glutSolidCube(100)
+        glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(-2, 22, 122)
+        glScalef(0.38, 0.06, 0.06)
+        glutSolidCube(100)
+        glPopMatrix()
+
+    # If camera is behind character, draw face details FIRST so the main body covers them
+    if not is_front:
+        draw_face_details()
+
     # Main Body
     glPushMatrix()
     glColor3f(*c_body)
@@ -273,53 +341,11 @@ def draw_character():
     glutSolidCube(100)
     glPopMatrix()
 
-    # Goggles & Eyes (Left/Right)
-    for eye_x in [-16, 16]:
-        glPushMatrix()
-        glColor3f(*c_goggle)
-        glTranslatef(eye_x, 21, 160)
-        glScalef(0.28, 0.08, 0.35)
-        glutSolidCube(100)
-        glPopMatrix()
+    # If camera is in front of character, draw face details AFTER body so they are visible
+    if is_front:
+        draw_face_details()
 
-        glPushMatrix()
-        glColor3f(*c_white)
-        glTranslatef(eye_x, 25, 160)
-        glScalef(0.18, 0.08, 0.22)
-        glutSolidCube(100)
-        glPopMatrix()
-
-        glPushMatrix()
-        glColor3f(*c_dark)
-        glTranslatef(eye_x, 29, 160)
-        glScalef(0.08, 0.05, 0.1)
-        glutSolidCube(100)
-        glPopMatrix()
-
-        # Eyebrow
-        glPushMatrix()
-        glColor3f(*c_dark)
-        glTranslatef(eye_x, 22, 185)
-        glScalef(0.25, 0.06, 0.06)
-        glutSolidCube(100)
-        glPopMatrix()
-
-    # Nose & Smirk
-    glPushMatrix()
-    glColor3f(*c_dark)
-    glTranslatef(0, 22, 138)
-    glScalef(0.06, 0.06, 0.16)
-    glutSolidCube(100)
-    glPopMatrix()
-
-    glPushMatrix()
-    glColor3f(*c_dark)
-    glTranslatef(-2, 22, 122)
-    glScalef(0.38, 0.06, 0.06)
-    glutSolidCube(100)
-    glPopMatrix()
-
-    # Arms & Legs
+    # Arms
     for side_x in [-38.5, 38.5]:
         glPushMatrix()
         glColor3f(*c_body)
@@ -328,11 +354,7 @@ def draw_character():
         glutSolidCube(100)
         glPopMatrix()
 
-    # Legs -- each leg (shin + foot) swings as a unit around the hip joint
-    # (pivoting at the top of the shin, z=18) using a sine wave driven by
-    # walk_cycle_phase. Left and right legs are offset by pi so they
-    # alternate like a real walk cycle. When not walking, swing_angle is 0
-    # and the legs render at their original static pose.
+    # Legs
     leg_swing_amplitude = 28.0  # degrees
     for leg_x, phase_offset in ((-14, 0.0), (14, math.pi)):
         swing_angle = 0.0
@@ -340,8 +362,6 @@ def draw_character():
             swing_angle = math.sin(walk_cycle_phase + phase_offset) * leg_swing_amplitude
 
         glPushMatrix()
-        # Pivot around the hip (top of the leg) instead of the model origin,
-        # so the leg swings like a real limb rather than orbiting the torso.
         glTranslatef(leg_x, 0, 18)
         glRotatef(swing_angle, 1, 0, 0)
 
@@ -383,7 +403,6 @@ def draw_connected_floor_pathways():
     glPopMatrix()
 
     glColor3f(*COLOR_GOLD_TRIM)
-    glLineWidth(3.0)
     glBegin(GL_LINES)
     glVertex3f(-1.8, 0.05, 0.0); glVertex3f(-1.8, 0.05, 40.0)
     glVertex3f(1.8, 0.05, 0.0); glVertex3f(1.8, 0.05, 40.0)
@@ -441,69 +460,68 @@ def draw_connected_floor_pathways():
     draw_box(11.2, 0.2, 94.4, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
+# -----------------------------------------------------------------------------
+# Maze Walls, Lights, and Pillars Layout Tables (for Depth-Sorted Rendering)
+# -----------------------------------------------------------------------------
+MAZE_WALL_SEGMENTS = [
+    # (cx, cy, cz, sx, sy, sz)
+    (0.0, 3.5, -0.4, 13.6, 7.0, 0.8),          # South Wall of Start Hub
+    (-6.4, 3.5, 27.0, 0.8, 7.0, 54.8),         # Start Hub West Wall
+    (6.4, 3.5, 27.0, 0.8, 7.0, 54.8),          # Start Hub East Wall
+    (-6.4, 3.5, 60.0, 0.8, 7.0, 12.0),         # West end cap of Junction A
+    (13.8, 3.5, 65.6, 41.2, 7.0, 0.8),         # South Wall of Junction A
+    (26.0, 3.5, 54.4, 40.0, 7.0, 0.8),         # North Wall of Junction A
+    (34.4, 3.5, 90.2, 0.8, 7.0, 49.2),         # West Wall of Lava Pit
+    (45.6, 3.5, 87.0, 0.8, 7.0, 66.0),         # East Wall of Lava Pit
+    (45.6, 3.5, 120.0, 0.8, 7.0, 12.0),        # East end cap of Junction B
+    (5.8, 3.5, 125.6, 80.4, 7.0, 0.8),         # North Wall of Corridor B
+    (-5.8, 3.5, 114.4, 80.4, 7.0, 0.8),        # South Wall of Corridor B
+    (-45.6, 3.5, 147.5, 0.8, 7.0, 67.0),       # West Wall of Disappearing Floor
+    (-34.4, 3.5, 147.2, 0.8, 7.0, 56.0),       # East Wall of Disappearing Floor
+    (-45.6, 3.5, 180.0, 0.8, 7.0, 12.0),       # West end cap of Junction C
+    (-15.8, 3.5, 185.6, 60.4, 7.0, 0.8),       # North Wall of Junction C
+    (-4.5, 3.5, 174.4, 61.0, 7.0, 0.8),        # South Wall of Junction C
+    (14.4, 3.5, 215.5, 0.8, 7.0, 61.0),        # West Wall of Laser Gauntlet
+    (25.6, 3.5, 210.0, 0.8, 7.0, 66.0),        # East Wall of Laser Gauntlet
+    (50.8, 3.5, 234.4, 50.4, 7.0, 0.8),        # South Wall of Junction D
+    (39.8, 3.5, 245.6, 51.6, 7.0, 0.8),        # North Wall of Junction D
+    (64.4, 3.5, 292.8, 0.8, 7.0, 95.2),        # West Wall of Exit Chamber
+    (75.6, 3.5, 287.2, 0.8, 7.0, 106.4),       # East Wall of Exit Chamber
+    (70.0, 3.5, 340.4, 12.0, 7.0, 0.8),        # North Back Wall of Exit Chamber
+]
+
+LIGHT_COORDS = [
+    (0.0, 15.0), (0.0, 45.0),
+    (20.0, 60.0), (40.0, 75.0), (40.0, 105.0),
+    (20.0, 120.0), (-20.0, 120.0), (-40.0, 135.0), (-40.0, 165.0),
+    (-10.0, 180.0), (20.0, 195.0), (20.0, 225.0),
+    (45.0, 240.0), (70.0, 260.0), (70.0, 290.0), (70.0, 320.0)
+]
+
+PILLAR_COORDS = [
+    (0.0, 0.0), (-5.0, 20.0), (5.0, 20.0),
+    (-5.0, 55.0), (5.0, 55.0),
+    (35.0, 65.0), (45.0, 65.0),
+    (35.0, 115.0), (45.0, 115.0),
+    (-35.0, 125.0), (-45.0, 125.0),
+    (-35.0, 175.0), (-45.0, 175.0),
+    (15.0, 185.0), (25.0, 185.0),
+    (15.0, 235.0), (25.0, 235.0),
+    (65.0, 245.0), (75.0, 245.0),
+    (65.0, 335.0), (75.0, 335.0)
+]
+
 def draw_connected_walls():
     """
     Renders 100% unbroken, fully connected walls around the entire maze layout.
-    Every corner joint overlaps perfectly with zero gaps!
     """
-    def wall(cx, cy, cz, sx, sy, sz):
+    for cx, cy, cz, sx, sy, sz in MAZE_WALL_SEGMENTS:
         glPushMatrix()
         glTranslatef(cx, cy, cz)
         draw_box(sx, sy, sz, color_top=COLOR_WALL, color_side=COLOR_WALL_SIDE)
         glPopMatrix()
 
-    # South Wall of Start Hub (Z = -0.4)
-    wall(0.0, 3.5, -0.4, 13.6, 7.0, 0.8)
-
-    # 1. Start Hub West & East Walls (Z: 0 -> 54.4)
-    wall(-6.4, 3.5, 27.0, 0.8, 7.0, 54.8)
-    wall(6.4, 3.5, 27.0, 0.8, 7.0, 54.8)
-
-    # 2. Turn 1 Junction Walls (Connected to Corridor A)
-    wall(-6.4, 3.5, 60.0, 0.8, 7.0, 12.0)            # West end cap of Junction A
-    wall(13.8, 3.5, 65.6, 41.2, 7.0, 0.8)           # South Wall (X: -6.4 -> 34.4, clear entry to Zone 2 at X: 34.4->45.6)
-    wall(26.0, 3.5, 54.4, 40.0, 7.0, 0.8)           # North Wall extended (X: 6.0 -> 46.0, fully closes pathway gap)
-
-    # 3. Hazard Pit Corridor Walls (Z: 54 -> 120)
-    wall(34.4, 3.5, 90.2, 0.8, 7.0, 49.2)           # West Wall (Z: 65.6 -> 114.8, clear walkway from Junction A)
-    wall(45.6, 3.5, 87.0, 0.8, 7.0, 66.0)           # East Wall extended back to Z: 54.0 (fully connects to North Wall)
-
-    # 4. Turn 2 Junction Walls (Connected to Long Backrooms Corridor B)
-    wall(45.6, 3.5, 120.0, 0.8, 7.0, 12.0)          # East end cap of Junction B
-    wall(5.8, 3.5, 125.6, 80.4, 7.0, 0.8)           # North Wall (X: -34.4 -> +46.0, clear entry to Zone 3 at X: -45.6->-34.4)
-    wall(-5.8, 3.5, 114.4, 80.4, 7.0, 0.8)          # South Wall (X: -46.0 -> +34.4, clear exit from Lava Pit at X: 34.4->45.6)
-
-    # 5. Disappearing Chamber Walls (Z: 114 -> 181)
-    wall(-45.6, 3.5, 147.5, 0.8, 7.0, 67.0)          # West Wall extended (X: -45.6, Z: 114.0 -> 181.0, connects to South Wall)
-    wall(-34.4, 3.5, 147.2, 0.8, 7.0, 56.0)          # East Wall (X: -34.4)
-
-    # 6. Turn 3 Junction Walls (Connected to Corridor C)
-    wall(-45.6, 3.5, 180.0, 0.8, 7.0, 12.0)          # West end cap of Junction C
-    wall(-15.8, 3.5, 185.6, 60.4, 7.0, 0.8)          # North Wall (X: -46.0 -> 14.4, clear entry to Zone 4 at X: 14.4->25.6)
-    wall(-4.5, 3.5, 174.4, 61.0, 7.0, 0.8)           # South Wall extended (X: -35.0 -> 26.0, closes East corner gap)
-
-    # 7. Laser Gauntlet Corridor Walls (Z: 177 -> 246)
-    wall(14.4, 3.5, 215.5, 0.8, 7.0, 61.0)           # West Wall extended (Z: 185.0 -> 246.0, fully closes West corner cap)
-    wall(25.6, 3.5, 210.0, 0.8, 7.0, 66.0)           # East Wall extended (Z: 177.0 -> 243.0, overlaps with Junctions C & D)
-
-    # 8. Turn 4 Junction Walls (Connected to Corridor D)
-    wall(50.8, 3.5, 234.4, 50.4, 7.0, 0.8)          # South Wall (X: 25.6 -> 76.0, clear walkway at X: 14.4->25.6)
-    wall(39.8, 3.5, 245.6, 51.6, 7.0, 0.8)          # North Wall extended (X: 14.0 -> 65.6, fully closes Junction D gap)
-
-    # 9. Moving Walls & Exit Chamber Walls (Z: 240 -> 340)
-    wall(64.4, 3.5, 292.8, 0.8, 7.0, 95.2)          # West Wall
-    wall(75.6, 3.5, 287.2, 0.8, 7.0, 106.4)         # East Wall
-    wall(70.0, 3.5, 340.4, 12.0, 7.0, 0.8)          # North Back Wall (End of Level 1)
-
-    # Fluorescent Overhead Light Panels
-    light_coords = [
-        (0.0, 15.0), (0.0, 45.0),
-        (20.0, 60.0), (40.0, 75.0), (40.0, 105.0),
-        (20.0, 120.0), (-20.0, 120.0), (-40.0, 135.0), (-40.0, 165.0),
-        (-10.0, 180.0), (20.0, 195.0), (20.0, 225.0),
-        (45.0, 240.0), (70.0, 260.0), (70.0, 290.0), (70.0, 320.0)
-    ]
-    for lx, lz in light_coords:
+    for lx, lz in LIGHT_COORDS:
         glPushMatrix()
         glTranslatef(lx, 6.9, lz)
         draw_box(3.0, 0.1, 4.0, color_top=COLOR_LIGHT_PANEL, color_side=(0.7, 0.7, 0.5))
@@ -513,20 +531,7 @@ def draw_pillars_and_archways():
     """
     Draws dark charcoal vertical pillars with cyan glowing caps at key maze turns.
     """
-    pillars = [
-        (0.0, 0.0), (-5.0, 20.0), (5.0, 20.0),
-        (-5.0, 55.0), (5.0, 55.0),
-        (35.0, 65.0), (45.0, 65.0),
-        (35.0, 115.0), (45.0, 115.0),
-        (-35.0, 125.0), (-45.0, 125.0),
-        (-35.0, 175.0), (-45.0, 175.0),
-        (15.0, 185.0), (25.0, 185.0),
-        (15.0, 235.0), (25.0, 235.0),
-        (65.0, 245.0), (75.0, 245.0),
-        (65.0, 335.0), (75.0, 335.0)
-    ]
-    
-    for px, pz in pillars:
+    for px, pz in PILLAR_COORDS:
         glPushMatrix()
         glTranslatef(px, 3.5, pz)
         draw_box(1.4, 7.0, 1.4, color_top=COLOR_PILLAR, color_side=(0.12, 0.12, 0.14))
@@ -770,7 +775,6 @@ def draw_disappearing_platforms():
             glPopMatrix()
         else:
             glColor3f(0.3, 0.3, 0.35)
-            glLineWidth(1.5)
             glBegin(GL_LINES)
             for dx in [-1.4, 1.4]:
                 for dz in [-2.0, 2.0]:
@@ -813,19 +817,13 @@ def draw_laser_emitters():
         draw_box(0.1, 0.4, 0.4, color_top=color_rgb, color_side=color_rgb)
         glPopMatrix()
 
-        # Outer thick glowing red beam line
-        glLineWidth(6.0)
-        glColor3f(*color_rgb)
-        glBegin(GL_LINES)
-        glVertex3f(15.0, py, pz); glVertex3f(25.0, py, pz)
-        glEnd()
-
-        # Inner bright white core line
-        glLineWidth(2.0)
-        glColor3f(1.0, 1.0, 1.0)
-        glBegin(GL_LINES)
-        glVertex3f(15.0, py, pz); glVertex3f(25.0, py, pz)
-        glEnd()
+        # Outer glowing red beam box
+        glPushMatrix()
+        glTranslatef(20.0, py, pz)
+        draw_box(10.0, 0.08, 0.08, color_top=color_rgb, color_side=color_rgb)
+        # Inner bright white core box
+        draw_box(10.0, 0.03, 0.03, color_top=(1.0, 1.0, 1.0), color_side=(1.0, 1.0, 1.0))
+        glPopMatrix()
 
 # -----------------------------------------------------------------------------
 # Moving Walls Constants (Section 5, X: 64.4 -> 75.6, Z: 240 -> 300)
@@ -902,7 +900,6 @@ def draw_exit_portal():
     glPopMatrix()
 
     glColor3f(0.3, 0.95, 1.0)
-    glLineWidth(4.0)
     glBegin(GL_LINES)
     glVertex3f(portal_x - 2.4, 0.0, portal_z + 0.2); glVertex3f(portal_x - 2.4, 5.0, portal_z + 0.2)
     glVertex3f(portal_x + 2.4, 0.0, portal_z + 0.2); glVertex3f(portal_x + 2.4, 5.0, portal_z + 0.2)
@@ -915,8 +912,9 @@ def draw_exit_portal():
 def setup_camera():
     """
     Configures perspective projection and positions camera in 1st or 3rd person mode using gluLookAt.
-    Strictly compliant with course Lab 2/3 camera functions.
+    Strictly compliant with course Lab 2/3 camera functions with Level 3 smooth mouse aiming.
     """
+    glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
     gluPerspective(60.0, float(WINDOW_WIDTH) / float(WINDOW_HEIGHT), 0.1, 400.0)
@@ -934,24 +932,24 @@ def setup_camera():
         cam_y = player_pos[1] + curr_eye_h
         cam_z = player_pos[2]
 
-        dir_x = math.sin(rad_yaw) * math.cos(rad_pitch)
-        dir_y = math.sin(rad_pitch)
-        dir_z = math.cos(rad_yaw) * math.cos(rad_pitch)
+        center_x = cam_x + math.sin(rad_yaw) * math.cos(rad_pitch) * 100.0
+        center_y = cam_y + math.sin(rad_pitch) * 100.0
+        center_z = cam_z + math.cos(rad_yaw) * math.cos(rad_pitch) * 100.0
 
         gluLookAt(cam_x, cam_y, cam_z,
-                  cam_x + dir_x, cam_y + dir_y, cam_z + dir_z,
+                  center_x, center_y, center_z,
                   0.0, 1.0, 0.0)
     else:
         cam_x = player_pos[0] - math.sin(rad_yaw) * cam_dist
         cam_y = player_pos[1] + cam_height
         cam_z = player_pos[2] - math.cos(rad_yaw) * cam_dist
 
-        target_x = player_pos[0]
-        target_y = player_pos[1] + curr_eye_h
-        target_z = player_pos[2]
+        center_x = cam_x + math.sin(rad_yaw) * math.cos(rad_pitch) * 100.0
+        center_y = cam_y + math.sin(rad_pitch) * 100.0
+        center_z = cam_z + math.cos(rad_yaw) * math.cos(rad_pitch) * 100.0
 
         gluLookAt(cam_x, cam_y, cam_z,
-                  target_x, target_y, target_z,
+                  center_x, center_y, center_z,
                   0.0, 1.0, 0.0)
 
 def draw_rect_2d(x1, y1, x2, y2, color):
@@ -967,7 +965,6 @@ def draw_rect_2d(x1, y1, x2, y2, color):
 def draw_rect_border_2d(x1, y1, x2, y2, color, line_width=2.0):
     """Draws a 2D rectangular border frame in orthographic mode."""
     glColor3f(*color)
-    glLineWidth(line_width)
     glBegin(GL_LINES)
     glVertex2f(x1, y1); glVertex2f(x2, y1)
     glVertex2f(x2, y1); glVertex2f(x2, y2)
@@ -977,20 +974,21 @@ def draw_rect_border_2d(x1, y1, x2, y2, color, line_width=2.0):
 
 def update_window_dimensions():
     """
-    WINDOW_WIDTH / WINDOW_HEIGHT stay fixed at the size the window was
-    created with (glutInitWindowSize). Neither glutGet() nor
-    glutReshapeFunc() are in the lab's allowed function list, so there is
-    no allowed way to detect a manual window resize -- the alternative is
-    to simply keep treating the window as the fixed size it started at
-    (1000 x 750), which is exactly what glViewport/gluPerspective already
-    use via these globals. This function is now a no-op; it's kept only so
-    existing call sites elsewhere don't need to change.
+    Dynamically tracks the actual window dimensions (including Full Screen & Window Resizing),
+    matching Level 3 window handling architecture.
     """
-    pass
+    global WINDOW_WIDTH, WINDOW_HEIGHT
+    try:
+        cur_w = glutGet(GLUT_WINDOW_WIDTH)
+        cur_h = glutGet(GLUT_WINDOW_HEIGHT)
+        if cur_w > 0 and cur_h > 0:
+            WINDOW_WIDTH, WINDOW_HEIGHT = cur_w, cur_h
+    except:
+        pass
 
 def reshape_listener(w, h):
     """
-    GLUT reshape callback when window size changes (fullscreen, maximize, resize).
+    Handles window resize / fullscreen events immediately.
     """
     global WINDOW_WIDTH, WINDOW_HEIGHT
     if w > 0 and h > 0:
@@ -1006,7 +1004,6 @@ def draw_story_screen():
     """
     update_window_dimensions()
 
-    glClearColor(0.03, 0.04, 0.07, 1.0)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
 
@@ -1018,7 +1015,6 @@ def draw_story_screen():
     glLoadIdentity()
 
     # 1. Background Ambient Grid
-    glLineWidth(1.0)
     glColor3f(0.08, 0.10, 0.16)
     glBegin(GL_LINES)
     for gx in range(0, WINDOW_WIDTH, 40):
@@ -1060,7 +1056,6 @@ def draw_story_screen():
 
     # Divider Accent Line under Title
     glColor3f(0.0, 0.75, 0.95)
-    glLineWidth(2.0)
     glBegin(GL_LINES)
     glVertex2f(px1 + 40, py2 - 62)
     glVertex2f(px2 - 40, py2 - 62)
@@ -1096,11 +1091,7 @@ def draw_story_screen():
 
     # 5. Pulsing Bottom Prompt Button Bar
     prompt_str = "PRESS SPACE OR ENTER TO START"
-    # Measure approximate pixel width for horizontal centering, using the
-    # same per-character width estimate already used above for the story
-    # lines (len(text) * 9.2) -- glutBitmapWidth() is outside the lab's
-    # allowed function list, and this keeps the centering consistent with
-    # the rest of this screen instead of introducing a different method.
+    # Measure approximate pixel width for horizontal centering using per-character width estimate
     p_w = len(prompt_str) * 9.2
     p_start_x = (WINDOW_WIDTH - p_w) // 2
     prompt_y = py1 + 35
@@ -1127,7 +1118,8 @@ def draw_story_screen():
 
 def display():
     """
-    Main OpenGL Display Callback.
+    Main OpenGL Display Callback with Back-to-Front Depth Sorting (Level 3 Architecture).
+    Renders walls, hazards, and entities in strict distance order so all walls are 100% solid.
     """
     update_window_dimensions()
 
@@ -1135,61 +1127,164 @@ def display():
         draw_story_screen()
         return
 
-    glClearColor(0.06, 0.07, 0.09, 1.0)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glLoadIdentity()
 
-    glEnable(GL_DEPTH_TEST)
-
     setup_camera()
 
-    # Render Connected Maze Environment
+    # 1. Render Base Ground / Floors (foundational occluders)
     draw_connected_floor_pathways()
-    draw_connected_walls()
-    draw_pillars_and_archways()
-    draw_hazard_zones()
-    draw_disappearing_platforms()
-    draw_laser_emitters()
-    draw_moving_walls()
-    draw_exit_portal()
 
-    # Render Character ("tung tung tung sahur")
-    # Blink/flash character during wall invincibility frames (visible every other 10 frames)
-    if wall_invincibility_timer > 0:
-        if (wall_invincibility_timer // 10) % 2 == 0:
-            draw_character()
-        # else: skip drawing = blink effect
+    # Camera eye position in world space for depth sorting
+    rad = math.radians(player_yaw)
+    rad_pitch = math.radians(player_pitch)
+    curr_eye_h = 0.8 if crouching else eye_height
+
+    if first_person:
+        cam_x = player_pos[0]
+        cam_y = player_pos[1] + curr_eye_h
+        cam_z = player_pos[2]
     else:
-        draw_character()
+        cam_x = player_pos[0] - math.sin(rad) * cam_dist
+        cam_y = player_pos[1] + cam_height
+        cam_z = player_pos[2] - math.cos(rad) * cam_dist
 
-    # Determine Active Zone based on X, Z position
-    px, pz = player_pos[0], player_pos[2]
-    if pz < 60.0:
-        zone = "1. Starting Hub (Red Runner)"
-    elif pz <= 65.0:
-        zone = "Maze Walkway A (Turn East)"
-    elif px >= 30.0 and pz < 120.0:
-        zone = "2. Trap & Jump Zone (Lava Pits)"
-    elif pz <= 125.0:
-        zone = "Maze Walkway B (Backrooms Corridor West)"
-    elif px <= -30.0 and pz < 180.0:
-        zone = "3. Disappearing Floor Chamber (Void Gap)"
-    elif pz <= 185.0:
-        zone = "Maze Walkway C (Corridor East)"
-    elif pz < 240.0:
-        zone = "4. Laser Gauntlet Corridor (Beam Dodge)"
-    elif pz <= 245.0:
-        zone = "Maze Walkway D (Corridor East)"
-    elif pz < 300.0:
-        zone = "5. Moving Walls Segment (Shifting Blocks)"
-    else:
-        zone = "6. Exit Portal Chamber (Maze End)"
+    # 2. Collect all 3D scene elements for Back-to-Front Depth Sorting
+    render_list = []
 
-    # Render Clean HUD Overlay (Top-Left Corner) - Level 3 Health Bar Style
+    # A. Wall segments
+    for cx, cy, cz, sx, sy, sz in MAZE_WALL_SEGMENTS:
+        def _draw_w(cx=cx, cy=cy, cz=cz, sx=sx, sy=sy, sz=sz):
+            glPushMatrix()
+            glTranslatef(cx, cy, cz)
+            draw_box(sx, sy, sz, color_top=COLOR_WALL, color_side=COLOR_WALL_SIDE)
+            glPopMatrix()
+        render_list.append((cx, cy, cz, _draw_w))
+
+    # B. Ceiling light panels
+    for lx, lz in LIGHT_COORDS:
+        def _draw_l(lx=lx, lz=lz):
+            glPushMatrix()
+            glTranslatef(lx, 6.9, lz)
+            draw_box(3.0, 0.1, 4.0, color_top=COLOR_LIGHT_PANEL, color_side=(0.7, 0.7, 0.5))
+            glPopMatrix()
+        render_list.append((lx, 6.9, lz, _draw_l))
+
+    # C. Vertical Pillars & Archway Glow Caps
+    for px, pz in PILLAR_COORDS:
+        def _draw_p(px=px, pz=pz):
+            glPushMatrix()
+            glTranslatef(px, 3.5, pz)
+            draw_box(1.4, 7.0, 1.4, color_top=COLOR_PILLAR, color_side=(0.12, 0.12, 0.14))
+            glPopMatrix()
+            glPushMatrix()
+            glTranslatef(px, 6.2, pz)
+            draw_box(1.6, 0.4, 1.6, color_top=COLOR_CYAN_GLOW, color_side=(0.0, 0.6, 0.8))
+            glPopMatrix()
+        render_list.append((px, 3.5, pz, _draw_p))
+
+    # D. Hazard Lava Pit & Stepping Rocks (Corridor 2, Z: 65.6 -> 114.4)
+    render_list.append((40.0, -1.0, 90.0, draw_hazard_zones))
+
+    # E. Disappearing Floor Platforms
+    for px, pz, color_idx in DISAPPEARING_TILE_COORDS:
+        def _draw_dt(px=px, pz=pz, c=color_idx):
+            is_active = disappearing_tiles_active[c]
+            glPushMatrix()
+            glTranslatef(px, 0.0, pz)
+            if is_active:
+                draw_box(2.8, 0.4, 4.0, color_top=TILE_COLORS[c], color_side=(0.15, 0.15, 0.18))
+                glPushMatrix()
+                glTranslatef(0.0, -0.25, 0.0)
+                draw_box(2.4, 0.1, 3.6, color_top=(1.0, 1.0, 1.0), color_side=(0.5, 0.5, 0.5))
+                glPopMatrix()
+            else:
+                glColor3f(0.3, 0.3, 0.35)
+                glBegin(GL_LINES)
+                for dx in [-1.4, 1.4]:
+                    for dz in [-2.0, 2.0]:
+                        glVertex3f(dx, -0.2, dz)
+                        glVertex3f(dx, 0.2, dz)
+                glEnd()
+            glPopMatrix()
+        render_list.append((px, 0.0, pz, _draw_dt))
+
+    # F. Laser Emitters
+    for pz, py, color_rgb, desc in LASER_BEAMS:
+        def _draw_laser(pz=pz, py=py, col=color_rgb):
+            glPushMatrix()
+            glTranslatef(14.7, py, pz)
+            draw_box(0.6, 0.8, 0.8, color_top=(0.3, 0.3, 0.35), color_side=(0.2, 0.2, 0.25))
+            glTranslatef(0.35, 0.0, 0.0)
+            draw_box(0.1, 0.4, 0.4, color_top=col, color_side=col)
+            glPopMatrix()
+
+            glPushMatrix()
+            glTranslatef(25.3, py, pz)
+            draw_box(0.6, 0.8, 0.8, color_top=(0.3, 0.3, 0.35), color_side=(0.2, 0.2, 0.25))
+            glTranslatef(-0.35, 0.0, 0.0)
+            draw_box(0.1, 0.4, 0.4, color_top=col, color_side=col)
+            glPopMatrix()
+
+            glPushMatrix()
+            glTranslatef(20.0, py, pz)
+            draw_box(10.0, 0.08, 0.08, color_top=col, color_side=col)
+            draw_box(10.0, 0.03, 0.03, color_top=(1.0, 1.0, 1.0), color_side=(1.0, 1.0, 1.0))
+            glPopMatrix()
+        render_list.append((20.0, py, pz, _draw_laser))
+
+    # G. Moving Walls
+    for z_center, phase_mult in MOVING_WALL_PAIRS:
+        def _draw_mw(wz=z_center, phase=phase_mult):
+            offset = moving_walls_offset * phase
+
+            # Left crushing wall block
+            left_x = MOVING_WALL_REST_L + offset
+            glPushMatrix()
+            glTranslatef(left_x, 3.0, wz)
+            draw_box(MOVING_WALL_BLOCK_W, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
+            glTranslatef(MOVING_WALL_BLOCK_W / 2.0 - 0.1, 0.0, 0.0)
+            draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
+            glPopMatrix()
+
+            # Right crushing wall block
+            right_x = MOVING_WALL_REST_R - offset
+            glPushMatrix()
+            glTranslatef(right_x, 3.0, wz)
+            draw_box(MOVING_WALL_BLOCK_W, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
+            glTranslatef(-(MOVING_WALL_BLOCK_W / 2.0 - 0.1), 0.0, 0.0)
+            draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
+            glPopMatrix()
+
+        render_list.append((MOVING_WALL_CX, 3.0, z_center, _draw_mw))
+
+    # H. Exit Portal
+    render_list.append((70.0, 2.5, 335.0, draw_exit_portal))
+
+    # I. Player Character ("tung tung tung sahur")
+    if not first_person:
+        def _draw_player():
+            if wall_invincibility_timer > 0:
+                if (wall_invincibility_timer // 10) % 2 == 0:
+                    draw_character(cam_x, cam_z)
+            else:
+                draw_character(cam_x, cam_z)
+        render_list.append((player_pos[0], player_pos[1] + 1.0, player_pos[2], _draw_player))
+
+    # 3. Sort all entities Back-to-Front (highest distance from camera drawn first)
+    def _dist_sq(entity):
+        ex, ey, ez, fn = entity
+        return (ex - cam_x)**2 + (ey - cam_y)**2 + (ez - cam_z)**2
+
+    render_list.sort(key=_dist_sq, reverse=True)
+
+    for ex, ey, ez, fn in render_list:
+        fn()
+
+    # 4. Clean HUD Overlay (Top-Left Corner) - Level 3 Health Bar Style
     remaining_lives = max(0, 9 - consecutive_lava_falls)
     player_pct = remaining_lives / 9.0
 
-    # Color transition based on remaining health percentage (Green -> Yellow -> Red)
     if player_pct > 0.5:
         bar_color = (0.1, 0.9, 0.2)    # Bright Green
     elif player_pct > 0.25:
@@ -1213,7 +1308,7 @@ def display():
     elif lava_alert_timer > 0:
         draw_text(15, WINDOW_HEIGHT - 120, f"ALERT: {hazard_alert_text}")
 
-    draw_text(15, 20, "Controls: WASD/Arrows: Move/Turn | SPACE: Jump | Ctrl: Crouch | V: Camera | P: Pause | C: God Mode | R: Reset")
+    draw_text(15, 20, "WASD: Move | Mouse: Aim | Space: Jump | Ctrl: Crouch | V/RMB: Camera | P: Pause | C: God Mode | R: Reset", font=GLUT_BITMAP_HELVETICA_12)
 
     glutSwapBuffers()
 
@@ -1481,12 +1576,13 @@ def update_player_physics():
 
 def idle():
     """
-    Idle Callback: Updates story typewriter, physics, and scaffolding animations.
+    Idle Callback: Updates story typewriter, physics, scaffolding animations, and continuous mouse aiming.
     Uses strictly allowlisted GLUT callbacks (glutDisplayFunc, glutIdleFunc, glutKeyboardFunc, glutSpecialFunc, glutMouseFunc).
     """
     global story_timer, story_char_index, in_story_screen
     global moving_walls_offset, moving_walls_dir, platform_timer, disappearing_tiles_active
-    global wall_invincibility_timer
+    global wall_invincibility_timer, game_paused, game_over
+    global player_yaw, player_pitch, last_mouse_x, last_mouse_y, mouse_initialized
 
     if in_story_screen:
         story_timer += 1
@@ -1498,6 +1594,26 @@ def idle():
     if game_paused or game_over:
         glutPostRedisplay()
         return
+
+    # Update Mouse Movement Aiming (Continuous Cursor Tracking like Level 3)
+    try:
+        class _POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        _pt = _POINT()
+        if ctypes.windll.user32.GetCursorPos(ctypes.byref(_pt)):
+            if mouse_initialized:
+                dx = _pt.x - last_mouse_x
+                dy = _pt.y - last_mouse_y
+                if dx != 0 or dy != 0:
+                    mouse_sensitivity = 0.28
+                    player_yaw = (player_yaw + dx * mouse_sensitivity) % 360.0
+                    player_pitch = max(-65.0, min(65.0, player_pitch - dy * mouse_sensitivity))
+            else:
+                mouse_initialized = True
+            last_mouse_x = _pt.x
+            last_mouse_y = _pt.y
+    except:
+        pass
 
     update_player_physics()
 
@@ -1619,14 +1735,17 @@ def reset_game():
     Restores player position, facing angle, physics state, hazard counters, alerts,
     and game over/paused states back to initial start level defaults.
     """
-    global player_pos, player_yaw, crouching, first_person, is_jumping, y_velocity
+    global player_pos, player_yaw, player_pitch, crouching, first_person, is_jumping, y_velocity
     global consecutive_lava_falls, lava_alert_timer, hazard_alert_text
     global consecutive_wall_hits, wall_invincibility_timer, cheat_mode, game_over, game_paused
     global moving_walls_offset, moving_walls_dir
     global walk_cycle_phase, is_walking, _idle_ticks_since_move
+    global last_mouse_x, last_mouse_y, mouse_initialized
 
     player_pos = [0.0, 1.0, 7.4]
     player_yaw = 0.0
+    player_pitch = 0.0
+    mouse_initialized = False
     crouching = False
     is_jumping = False
     y_velocity = 0.0
@@ -1683,8 +1802,8 @@ def keyboard_listener(key, x, y):
         glutPostRedisplay()
         return
 
-    # ESC Key to Exit
-    if key == b'\x1b':
+    # ESC / Q Key to Exit
+    if key == b'\x1b' or ch == 'q':
         try:
             glutLeaveMainLoop()
         except:
@@ -1701,7 +1820,7 @@ def keyboard_listener(key, x, y):
     elif ch == 's':
         try_move_player(-math.sin(rad) * player_speed, -math.cos(rad) * player_speed)
 
-    # Strafe / Turn: A (Strafe Left / Turn), D (Strafe Right / Turn)
+    # Strafe / Turn: A (Strafe Left), D (Strafe Right)
     elif ch == 'a':
         try_move_player(math.sin(rad + math.pi/2.0) * player_speed, math.cos(rad + math.pi/2.0) * player_speed)
     elif ch == 'd':
@@ -1725,29 +1844,11 @@ def keyboard_listener(key, x, y):
 
     glutPostRedisplay()
 
-    glutPostRedisplay()
-
 def special_key_listener(key, x, y):
     """
-    Handles Arrow Keys (Up/Down for move forward/backward, Left/Right for turn yaw) and Left Ctrl (glutSpecialFunc).
+    Special keys listener (glutSpecialFunc). Arrow key movement removed in favor of Level 3 mouse aiming.
     """
-    global player_pos, player_yaw, crouching, game_paused
-    if game_paused or game_over:
-        return
-    rad = math.radians(player_yaw)
-
-    if key == GLUT_KEY_UP:
-        try_move_player(math.sin(rad) * player_speed, math.cos(rad) * player_speed)
-    elif key == GLUT_KEY_DOWN:
-        try_move_player(-math.sin(rad) * player_speed, -math.cos(rad) * player_speed)
-    elif key == GLUT_KEY_LEFT:
-        player_yaw = (player_yaw + 4.5) % 360.0
-    elif key == GLUT_KEY_RIGHT:
-        player_yaw = (player_yaw - 4.5) % 360.0
-    elif key in (114, 115): # GLUT_KEY_CTRL_L or GLUT_KEY_CTRL_R (Ctrl Key Crouch Toggle)
-        crouching = not crouching
-
-    glutPostRedisplay()
+    pass
 
 def mouse_listener(button, state, x, y):
     """
@@ -1773,13 +1874,7 @@ def main():
 
     # Register 100% Allowlisted Lab Callbacks Only
     glutDisplayFunc(display)
-    # glutReshapeFunc(reshape_listener) removed -- not in the lab's allowed
-    # function list, and there is no allowed alternative that reacts to a
-    # live resize event. Since glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT)
-    # above already fixes the window's starting size, and nothing else in
-    # this file has an allowed way to change or query it afterward, the
-    # window simply keeps that same size for the whole session -- matching
-    # every one of the lab template files, none of which handle resizing.
+    glutReshapeFunc(reshape_listener)
     glutIdleFunc(idle)
     glutKeyboardFunc(keyboard_listener)
     glutSpecialFunc(special_key_listener)

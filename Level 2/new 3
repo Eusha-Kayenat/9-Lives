@@ -141,7 +141,7 @@ zombies = []
 MAX_ACTIVE_ZOMBIES = 4       # Number of simultaneous zombies in arena
 ZOMBIE_SPAWN_INTERVAL = 120  # frames between spawns (~2 seconds)
 zombie_spawn_timer = 0
-zombie_base_speed = 0.020    # Extra slow shambling speed
+zombie_base_speed = 0.5    # Extra slow shambling speed
 
 # -----------------------------------------------------------------------------
 # Crate Obstacles Data & Bounding Boxes
