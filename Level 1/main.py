@@ -51,6 +51,9 @@ player_yaw = 0.0                  # Character facing angle in degrees
 player_pitch = 0.0                # Pitch angle looking up/down
 player_speed = 0.90         # Movement speed factor
 crouching = False                 # Crouch state
+walk_cycle_phase = 0.0            # Leg-swing animation phase, advances only while actually moving
+is_walking = False                 # True right after a successful move, drives leg animation
+_idle_ticks_since_move = 0        # Counts idle() ticks since the last successful move; used to detect "stopped walking"
 eye_height = 1.6                  # Standing eye height
 
 # Jump Physics Parameters
@@ -325,19 +328,36 @@ def draw_character():
         glutSolidCube(100)
         glPopMatrix()
 
-    for leg_x in [-14, 14]:
+    # Legs -- each leg (shin + foot) swings as a unit around the hip joint
+    # (pivoting at the top of the shin, z=18) using a sine wave driven by
+    # walk_cycle_phase. Left and right legs are offset by pi so they
+    # alternate like a real walk cycle. When not walking, swing_angle is 0
+    # and the legs render at their original static pose.
+    leg_swing_amplitude = 28.0  # degrees
+    for leg_x, phase_offset in ((-14, 0.0), (14, math.pi)):
+        swing_angle = 0.0
+        if is_walking:
+            swing_angle = math.sin(walk_cycle_phase + phase_offset) * leg_swing_amplitude
+
+        glPushMatrix()
+        # Pivot around the hip (top of the leg) instead of the model origin,
+        # so the leg swings like a real limb rather than orbiting the torso.
+        glTranslatef(leg_x, 0, 18)
+        glRotatef(swing_angle, 1, 0, 0)
+
         glPushMatrix()
         glColor3f(*c_dark)
-        glTranslatef(leg_x, 0, 18)
         glScalef(0.12, 0.15, 0.6)
         glutSolidCube(100)
         glPopMatrix()
 
         glPushMatrix()
         glColor3f(*c_dark)
-        glTranslatef(leg_x, 10, -8)
+        glTranslatef(0, 10, -26)
         glScalef(0.2, 0.35, 0.12)
         glutSolidCube(100)
+        glPopMatrix()
+
         glPopMatrix()
 
     glPopMatrix()
@@ -1486,9 +1506,20 @@ def idle():
 
     if anim_disappearing_floor:
         platform_timer += 1
-        if platform_timer % 40 == 0:
-            idx = (platform_timer // 40) % len(disappearing_tiles_active)
+        if platform_timer % 90 == 0:
+            idx = (platform_timer // 90) % len(disappearing_tiles_active)
             disappearing_tiles_active[idx] = not disappearing_tiles_active[idx]
+
+    # Stop the leg walk-cycle shortly after the player stops issuing move
+    # keypresses (movement is event-driven via keyboard_listener, not
+    # polled every frame, so OS key-repeat naturally leaves small gaps
+    # between move events while a key is held -- this threshold just needs
+    # to be a bit longer than that gap, not so long it looks like sliding).
+    global _idle_ticks_since_move, is_walking
+    if is_walking:
+        _idle_ticks_since_move += 1
+        if _idle_ticks_since_move > 6:
+            is_walking = False
 
     glutPostRedisplay()
 
@@ -1545,20 +1576,37 @@ def try_move_player(dx, dz):
     """
     Attempts to move player by (dx, dz) with smooth wall sliding response.
     Prevents player from phasing through any wall.
+
+    Also drives the leg walk-cycle: walk_cycle_phase only advances (and
+    is_walking is only set True) when the player actually ends up moving,
+    so legs swing while walking and stop immediately when blocked by a
+    wall or standing still.
     """
+    global walk_cycle_phase, is_walking, _idle_ticks_since_move
+
     new_x = player_pos[0] + dx
     new_z = player_pos[2] + dz
+
+    moved = False
 
     # 1. Try full movement
     if is_valid_walkway_position(new_x, new_z):
         player_pos[0] = new_x
         player_pos[2] = new_z
+        moved = True
     # 2. Slide along X axis only
     elif is_valid_walkway_position(new_x, player_pos[2]):
         player_pos[0] = new_x
+        moved = True
     # 3. Slide along Z axis only
     elif is_valid_walkway_position(player_pos[0], new_z):
         player_pos[2] = new_z
+        moved = True
+
+    if moved:
+        walk_cycle_phase += 0.35
+        is_walking = True
+        _idle_ticks_since_move = 0
 
 def reset_game():
     """
@@ -1569,6 +1617,7 @@ def reset_game():
     global consecutive_lava_falls, lava_alert_timer, hazard_alert_text
     global consecutive_wall_hits, wall_invincibility_timer, cheat_mode, game_over, game_paused
     global moving_walls_offset, moving_walls_dir
+    global walk_cycle_phase, is_walking, _idle_ticks_since_move
 
     player_pos = [0.0, 1.0, 7.4]
     player_yaw = 0.0
@@ -1581,6 +1630,9 @@ def reset_game():
     consecutive_wall_hits = 0
     wall_invincibility_timer = 0
     cheat_mode = False
+    walk_cycle_phase = 0.0
+    is_walking = False
+    _idle_ticks_since_move = 0
     game_over = False
     game_paused = False
     moving_walls_offset = 0.0
