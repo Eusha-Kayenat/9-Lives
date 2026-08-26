@@ -147,7 +147,7 @@ small_larrys_spawned_count = 0
 MAX_ACTIVE_SMALL_LARRY    = 3
 small_larrys = []
 # Slower speed matched with Zombie movement pace
-small_larry_speed = 0.08
+small_larry_speed =1
 
 class SmallLarry:
     def __init__(self, x, z):
