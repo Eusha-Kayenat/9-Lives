@@ -829,9 +829,6 @@ def draw_catnip_pickup():
 # -----------------------------------------------------------------------------
 # Character Rendering: "tung tung tung sahur"
 # -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# Character Rendering: "tung tung tung sahur"
-# -----------------------------------------------------------------------------
 def draw_character(cam_x=0.0, cam_z=0.0):
     if first_person:
         return
@@ -839,8 +836,9 @@ def draw_character(cam_x=0.0, cam_z=0.0):
     glPushMatrix()
     curr_y = player_pos[1]
     glTranslatef(player_pos[0], curr_y, player_pos[2])
-    glRotatef(player_yaw + 180.0, 0, 1, 0)
+    glRotatef(player_yaw, 0, 1, 0)
     glRotatef(-90.0, 1, 0, 0)
+    glRotatef(180.0, 0, 0, 1)
 
     if player_invulnerable_timer > 0 and (player_invulnerable_timer // 4) % 2 == 1:
         glColor3f(1.0, 0.2, 0.2)
@@ -904,18 +902,32 @@ def draw_character(cam_x=0.0, cam_z=0.0):
         glutSolidCube(100)
         glPopMatrix()
 
+    def draw_held_weapon():
+        if gun_picked_up and active_weapon == "gun":
+            glPushMatrix()
+            glTranslatef(38.5, 20, 70)
+            glRotatef(90, 1, 0, 0)
+            glScalef(120.0, 120.0, 120.0)
+            draw_3d_gun_model()
+            glPopMatrix()
+        elif catnip_picked_up and active_weapon == "catnip":
+            glPushMatrix()
+            glTranslatef(38.5, 20, 70)
+            glScalef(140.0, 140.0, 140.0)
+            draw_3d_catnip_model()
+            glPopMatrix()
+
     if not is_front:
         draw_face_details()
+        draw_held_weapon()
 
+    # Torso
     glPushMatrix()
     glColor3f(*c_body)
     glTranslatef(0, 0, 120)
     glScalef(0.65, 0.4, 1.8)
     glutSolidCube(100)
     glPopMatrix()
-
-    if is_front:
-        draw_face_details()
 
     # Arms
     glPushMatrix()
@@ -948,22 +960,9 @@ def draw_character(cam_x=0.0, cam_z=0.0):
         glutSolidCube(100)
         glPopMatrix()
 
-    # Weapon in hand (pointing forward into the arena)
-    if gun_picked_up and active_weapon == "gun":
-        glPushMatrix()
-        glTranslatef(38.5, 22, 75)
-        glRotatef(90, 1, 0, 0)
-        glRotatef(180, 0, 0, 1)
-        glScalef(120.0, 120.0, 120.0)
-        draw_3d_gun_model()
-        glPopMatrix()
-    elif catnip_picked_up and active_weapon == "catnip":
-        glPushMatrix()
-        glTranslatef(38.5, 22, 75)
-        glRotatef(90, 1, 0, 0)
-        glScalef(140.0, 140.0, 140.0)
-        draw_3d_catnip_model()
-        glPopMatrix()
+    if is_front:
+        draw_face_details()
+        draw_held_weapon()
 
     glPopMatrix()
 
@@ -1114,14 +1113,14 @@ class Zombie:
         dz = player_pos[2] - self.pos[2]
         dist = math.sqrt(dx * dx + dz * dz)
 
-        if dist > 0.6:
+        if dist > 1.2:
             step_x = (dx / dist) * self.speed
             step_z = (dz / dist) * self.speed
 
             next_x = self.pos[0] + step_x
             next_z = self.pos[2] + step_z
 
-            res_x, res_z = resolve_entity_crate_collision(next_x, next_z, radius=0.8, y_height=0.5)
+            res_x, res_z = resolve_entity_crate_collision(next_x, next_z, radius=1.6, y_height=1.0)
 
             self.pos[0] = res_x
             self.pos[2] = res_z
@@ -1133,17 +1132,18 @@ class Zombie:
             else:
                 self.yaw = math.degrees(math.atan2(dx, dz))
 
-        limit = ARENA_SIZE - 2.0
+        limit = ARENA_SIZE - 2.5
         self.pos[0] = max(-limit, min(limit, self.pos[0]))
         self.pos[2] = max(-limit, min(limit, self.pos[2]))
 
     def draw(self, cam_x=0.0, cam_z=0.0):
         glPushMatrix()
         glTranslatef(self.pos[0], self.pos[1], self.pos[2])
-        glRotatef(self.yaw + 180.0, 0, 1, 0)
+        glRotatef(self.yaw, 0, 1, 0)
         glRotatef(-90, 1, 0, 0)
+        glRotatef(180, 0, 0, 1)
 
-        scale_factor = 0.008
+        scale_factor = 0.016
         glScalef(scale_factor, scale_factor, scale_factor)
 
         rad_z = math.radians(self.yaw)
@@ -1211,7 +1211,7 @@ def check_target_lock():
             continue
 
         vx = z.pos[0] - player_pos[0]
-        vy = (z.pos[1] + 1.2) - eye_y
+        vy = (z.pos[1] + 2.4) - eye_y
         vz = z.pos[2] - player_pos[2]
         dist = math.sqrt(vx * vx + vy * vy + vz * vz)
 
@@ -1284,8 +1284,8 @@ def update_grenades_and_explosions():
 
         hit_zombie_target = None
         for z in zombies:
-            dist_sq = (gx - z.pos[0])**2 + (gy - (z.pos[1] + 1.0))**2 + (gz - z.pos[2])**2
-            if dist_sq < 2.5:
+            dist_sq = (gx - z.pos[0])**2 + (gy - (z.pos[1] + 2.0))**2 + (gz - z.pos[2])**2
+            if dist_sq < 6.0:
                 hit_zombie_target = z
                 break
 
@@ -1457,8 +1457,6 @@ def display():
     # Catnip Pickup
     if catnip_spawned and not catnip_picked_up:
         render_list.append((catnip_pickup_pos[0], catnip_pickup_pos[1], catnip_pickup_pos[2], draw_catnip_pickup))
-
-    # Red Glow Death Effects
     for d in death_effects:
         def _draw_de(d=d):
             draw_single_death_effect(d)
@@ -1468,7 +1466,7 @@ def display():
     for z in zombies:
         def _draw_z(z=z):
             z.draw(cam_x, cam_z)
-        render_list.append((z.pos[0], z.pos[1] + 1.0, z.pos[2], _draw_z))
+        render_list.append((z.pos[0], z.pos[1] + 2.0, z.pos[2], _draw_z))
 
     # Player Character
     if not first_person:
@@ -1581,7 +1579,7 @@ def idle():
     for z in zombies:
         z.update()
         dist_to_player = math.sqrt((z.pos[0] - player_pos[0])**2 + (z.pos[2] - player_pos[2])**2)
-        if dist_to_player < 1.5 and player_invulnerable_timer <= 0:
+        if dist_to_player < 2.2 and player_invulnerable_timer <= 0:
             if not cheat_mode:
                 player_hits_left -= 1
                 player_invulnerable_timer = 50

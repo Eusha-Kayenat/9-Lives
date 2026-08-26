@@ -1,0 +1,2194 @@
+"""
+===============================================================================
+"9 Lives" - Level 3: The Boss Fight (Evil Larry & Tung Tung Tung Sahur)
+===============================================================================
+Course: CSE423 Computer Graphics Project
+STRICTLY ALLOWED OPENGL FUNCTIONS ONLY (From LAB 01, LAB 1.2, LAB 02, LAB 03)
+
+Features:
+- Main Character: 'tung tung tung sahur' (9 Lives)
+- Boss: 'Evil Larry' with 2-Layer Health Bar (Top: Red HP, Bottom: Ash Shield)
+- Minions: 'Small Larry'
+  * Extra slow movement speed (matched with Zombie speed)
+  * When Boss Shield breaks, ALL remaining Small Larries immediately disappear!
+- Weapons:
+  * Bomb / Grenade: Direct damage to boss and minions (LMB Click)
+  * Glowing Blue Catnip: Throw at Small Larries to charm them!
+- Charmed Small Larries run directly to Big Larry and destroy his shield in sections!
+- Pause / Resume on 'P' key
+- Weapon Switcher on 'F' key (Bomb <-> Catnip)
+- Left Mouse Click (LMB): Fire active weapon (Bomb or Catnip)
+- Right Mouse Click (RMB) / 'V': Toggle Camera View (1st Person <-> 3rd Person Follow)
+===============================================================================
+"""
+
+import sys
+import math
+import random
+import ctypes
+from OpenGL.GL import *
+from OpenGL.GLUT import *
+from OpenGL.GLU import *
+
+# =============================================================================
+#  WINDOW & ARENA CONSTANTS
+# =============================================================================
+WIN_W, WIN_H = 1000, 750
+ARENA_RADIUS = 550.0
+WALL_HEIGHT  = 110.0
+
+# Inner ring - SMALL plain ash-colored cylinder pillars
+INNER_RING_R = 200.0
+INNER_COUNT  = 8
+INNER_BASE_R = 8.0
+INNER_TOP_R  = 8.0
+INNER_HEIGHT = 48.0
+
+# Outer ring - LARGE imposing decorated pillars
+OUTER_RING_R = 400.0
+OUTER_COUNT  = 8
+OUTER_BASE_R = 16.0
+OUTER_TOP_R  = 12.0
+OUTER_HEIGHT = 100.0
+
+# =============================================================================
+#  PLAYER STATE (Tung Tung Tung Sahur)
+# =============================================================================
+player_pos   = [0.0, 0.0, -320.0]
+player_yaw   = 0.0
+player_pitch = 0.0
+BASE_PLAYER_SPEED = 5
+player_speed = 5
+crouching    = False
+
+is_jumping   = False
+y_velocity   = 0.0
+gravity      = -0.055
+jump_strength = 1.20
+ground_y     = 0.0
+
+MAX_PLAYER_HITS = 9
+player_hits_left = 9
+player_invulnerable_timer = 0
+cheat_mode   = False
+is_game_over     = False
+is_level_cleared = False
+is_paused        = False
+score            = 0
+
+first_person = False
+cam_dist     = 48.0
+cam_height   = 14.0
+
+last_mouse_x = 0
+last_mouse_y = 0
+mouse_initialized = False
+
+walk_anim_phase = 0.0
+is_moving = False
+arm_throw_timer = 0
+
+# Weapon Mode: "gun" (Bomb/Grenade) vs "catnip" (Taming/Charming Projectile)
+active_weapon = "gun"
+
+# =============================================================================
+#  EVIL LARRY (BOSS) STATE
+# =============================================================================
+evil_larry_pos      = [0.0, 0.0, 0.0]
+evil_larry_yaw      = 180.0
+EVIL_LARRY_MAX_SHIELD = 300.0
+EVIL_LARRY_MAX_HP     = 500.0
+evil_larry_shield     = 300.0
+evil_larry_hp         = 500.0
+evil_larry_shield_broken = False
+evil_larry_speed      = 0.52
+evil_larry_hit_flash  = 0
+small_pillars_destroyed = False
+meow_timer = 0
+
+# =============================================================================
+#  COLLISION DETECTION (Solid Pillars)
+# =============================================================================
+def resolve_pillar_collisions(nx, nz):
+    for k in range(OUTER_COUNT):
+        ang = 2 * math.pi * k / OUTER_COUNT
+        px = OUTER_RING_R * math.cos(ang)
+        pz = OUTER_RING_R * math.sin(ang)
+        d = math.sqrt((nx - px)**2 + (nz - pz)**2)
+        min_d = OUTER_BASE_R + 12.0
+        if d < min_d:
+            if d > 0.001:
+                nx = px + ((nx - px) / d) * min_d
+                nz = pz + ((nz - pz) / d) * min_d
+            else:
+                nx += 1.0
+
+    if not small_pillars_destroyed:
+        for k in range(INNER_COUNT):
+            ang = 2 * math.pi * k / INNER_COUNT
+            px = INNER_RING_R * math.cos(ang)
+            pz = INNER_RING_R * math.sin(ang)
+            d = math.sqrt((nx - px)**2 + (nz - pz)**2)
+            min_d = INNER_BASE_R + 10.0
+            if d < min_d:
+                if d > 0.001:
+                    nx = px + ((nx - px) / d) * min_d
+                    nz = pz + ((nz - pz) / d) * min_d
+                else:
+                    nx += 1.0
+
+    return nx, nz
+
+# =============================================================================
+#  SMALL LARRY (MINIONS) STATE & CATNIP CHARM MECHANIC
+# =============================================================================
+TOTAL_SMALL_LARRY_ALLOWED = 9
+small_larrys_spawned_count = 0
+MAX_ACTIVE_SMALL_LARRY    = 3
+small_larrys = []
+# Slower speed matched with Zombie movement pace
+small_larry_speed = 0.08
+
+class SmallLarry:
+    def __init__(self, x, z):
+        self.pos = [x, 0.0, z]
+        self.x = x
+        self.y = 0.0
+        self.z = z
+        self.yaw = 0.0
+        self.alive = True
+        self.hp = 4
+        self.hit_flash = 0
+        self.charmed = False  # Set to True when hit by Catnip!
+        self.sparkle_rot = 0.0
+
+    def update(self, player_x, player_z, boss_x, boss_z):
+        if not self.alive:
+            return
+
+        if self.charmed:
+            self.sparkle_rot = (self.sparkle_rot + 12.0) % 360.0
+            target_x = boss_x
+            target_z = boss_z
+            speed = 0.85  # Faster sprint to Big Larry
+        else:
+            target_x = player_x
+            target_z = player_z
+            speed = small_larry_speed
+
+        dx = target_x - self.x
+        dz = target_z - self.z
+        dist = math.sqrt(dx*dx + dz*dz)
+        if dist > 0.001:
+            nx = self.x + (dx / dist) * speed
+            nz = self.z + (dz / dist) * speed
+            self.x, self.z = resolve_pillar_collisions(nx, nz)
+            self.pos[0] = self.x
+            self.pos[2] = self.z
+            self.yaw = math.degrees(math.atan2(dx, dz))
+
+        if self.hit_flash > 0:
+            self.hit_flash -= 1
+
+# =============================================================================
+#  WEAPONS & PROJECTILES (Bombs & Catnip)
+# =============================================================================
+bombs = []
+catnips = []
+weapon_cooldown = 0
+WEAPON_COOLDOWN_MAX = 14
+BOMB_DAMAGE = 15.0
+
+class Bomb:
+    def __init__(self, x, y, z, vx, vy, vz):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.vx = vx
+        self.vy = vy
+        self.vz = vz
+        self.life = 130
+        self.alive = True
+        self.rot = 0.0
+
+    def update(self):
+        if not self.alive:
+            return
+        self.x += self.vx
+        self.y += self.vy
+        self.z += self.vz
+        self.vy += -0.048
+        self.rot += 14.0
+        self.life -= 1
+        if self.life <= 0:
+            self.alive = False
+
+class CatnipProjectile:
+    def __init__(self, x, y, z, vx, vy, vz):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.vx = vx
+        self.vy = vy
+        self.vz = vz
+        self.life = 150
+        self.alive = True
+        self.rot = 0.0
+
+    def update(self):
+        if not self.alive:
+            return
+        self.x += self.vx
+        self.y += self.vy
+        self.z += self.vz
+        self.vy += -0.038
+        self.rot += 12.0
+        self.life -= 1
+        if self.life <= 0:
+            self.alive = False
+
+# =============================================================================
+#  EXPLOSIONS
+# =============================================================================
+explosions = []
+
+class Explosion:
+    def __init__(self, x, y, z, max_r=18.0, is_blue=False):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.radius = 1.5
+        self.max_radius = max_r
+        self.life = 24
+        self.max_life = 24
+        self.is_blue = is_blue
+        self.particles = []
+        for _ in range(18):
+            theta = random.uniform(0, 2*math.pi)
+            phi = random.uniform(-math.pi/2, math.pi/2)
+            spd = random.uniform(0.7, 2.4)
+            self.particles.append([
+                0.0, 0.0, 0.0,
+                math.cos(phi)*math.sin(theta)*spd,
+                math.sin(phi)*spd + 0.35,
+                math.cos(phi)*math.cos(theta)*spd
+            ])
+
+    def update(self):
+        self.life -= 1
+        progress = 1.0 - (self.life / float(self.max_life))
+        self.radius = 1.5 + (self.max_radius - 1.5) * progress
+        for p in self.particles:
+            p[0] += p[3]
+            p[1] += p[4]
+            p[2] += p[5]
+            p[4] -= 0.032
+
+# =============================================================================
+#  SPEEDBOOST POWER-UPS
+# =============================================================================
+SPEEDBOOST_INTERVAL_FRAMES = 13 * 60
+speedboost_spawn_timer = 0
+speed_boost_duration_timer = 0
+
+SPEEDBOOST_LOCATIONS = [
+    [-240.0, 6.0, 0.0],
+    [ 240.0, 6.0, 0.0],
+    [ 0.0, 6.0, -240.0],
+    [ 0.0, 6.0,  240.0]
+]
+
+class SpeedboostItem:
+    def __init__(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.active = True
+        self.rot = 0.0
+        self.respawn_timer = 0
+
+    def update(self):
+        self.rot = (self.rot + 3.0) % 360.0
+        if not self.active:
+            self.respawn_timer += 1
+            if self.respawn_timer >= SPEEDBOOST_INTERVAL_FRAMES:
+                self.active = True
+                self.respawn_timer = 0
+
+speedboost_items = [
+    SpeedboostItem(*SPEEDBOOST_LOCATIONS[0]),
+    SpeedboostItem(*SPEEDBOOST_LOCATIONS[1]),
+    SpeedboostItem(*SPEEDBOOST_LOCATIONS[2]),
+    SpeedboostItem(*SPEEDBOOST_LOCATIONS[3])
+]
+
+# =============================================================================
+#  BOSS OFFENSIVE POWERS (Hairball, Pounce Slam, Spherical Projectiles)
+# =============================================================================
+HAIRBALL_COOLDOWN = 30 * 60
+hairball_timer = HAIRBALL_COOLDOWN
+hairballs = []
+hairball_puddles = []
+
+class Hairball:
+    def __init__(self, x, y, z, tx, tz):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.rot = 0.0
+        self.alive = True
+
+        target_limit = ARENA_RADIUS - 65.0
+        dist_t = math.sqrt(tx*tx + tz*tz)
+        if dist_t > target_limit:
+            tx = (tx / dist_t) * target_limit
+            tz = (tz / dist_t) * target_limit
+
+        dx = tx - x
+        dz = tz - z
+        dist = math.sqrt(dx*dx + dz*dz)
+        flight_time = max(45.0, min(85.0, dist / 4.2))
+        self.vx = dx / flight_time
+        self.vz = dz / flight_time
+        self.vy = 0.5 * 0.045 * flight_time + 1.2
+        self.gravity = -0.045
+
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.z += self.vz
+        self.vy += self.gravity
+        self.rot += 14.0
+
+        r_curr = math.sqrt(self.x**2 + self.z**2)
+        wall_limit = ARENA_RADIUS - 35.0
+        if r_curr > wall_limit:
+            self.x = (self.x / r_curr) * wall_limit
+            self.z = (self.z / r_curr) * wall_limit
+            self.y = 0.2
+            self.alive = False
+
+        if self.y <= 0.2:
+            self.y = 0.2
+            self.alive = False
+
+class HairballPuddle:
+    def __init__(self, x, z):
+        self.radius = 38.0
+        puddle_limit = ARENA_RADIUS - self.radius - 20.0
+        r = math.sqrt(x*x + z*z)
+        if r > puddle_limit:
+            x = (x / r) * puddle_limit
+            z = (z / r) * puddle_limit
+
+        self.x = x
+        self.z = z
+        self.life = 480
+        self.max_life = 480
+        self.bubbles = []
+        for _ in range(16):
+            self.bubbles.append([
+                random.uniform(-30, 30),
+                random.uniform(0.2, 4.5),
+                random.uniform(-30, 30),
+                random.uniform(0.05, 0.14)
+            ])
+
+    def update(self):
+        self.life -= 1
+        for b in self.bubbles:
+            b[1] += b[3]
+            if b[1] > 6.5:
+                b[1] = 0.2
+                b[0] = random.uniform(-30, 30)
+                b[2] = random.uniform(-30, 30)
+
+POUNCE_COOLDOWN = 15 * 60
+pounce_timer = POUNCE_COOLDOWN
+pounce_state = 'IDLE'
+pounce_sub_timer = 0
+pounce_target = [0.0, 0.0]
+pounce_start = [0.0, 0.0]
+pounce_shockwave_r = 0.0
+pounce_shockwave_life = 0
+
+boss_spherical_timer = random.randint(4 * 60, 5 * 60)
+boss_projectiles = []
+
+class BossProjectile:
+    def __init__(self, x, y, z, tx, ty, tz):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.rot = 0.0
+        self.radius = 6.0
+        self.life = 180
+        self.alive = True
+        dx = tx - x
+        dy = ty - y
+        dz = tz - z
+        dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+        spd = 3.6
+        if dist > 0.001:
+            self.vx = (dx / dist) * spd
+            self.vy = (dy / dist) * spd
+            self.vz = (dz / dist) * spd
+        else:
+            self.vx = 0.0
+            self.vy = 0.0
+            self.vz = spd
+
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.z += self.vz
+        self.rot += 16.0
+        self.life -= 1
+        if self.life <= 0 or self.y <= 0.0:
+            self.alive = False
+
+        for k in range(OUTER_COUNT):
+            ang = 2 * math.pi * k / OUTER_COUNT
+            px = OUTER_RING_R * math.cos(ang)
+            pz = OUTER_RING_R * math.sin(ang)
+            d = math.sqrt((self.x - px)**2 + (self.z - pz)**2)
+            if d < (OUTER_BASE_R + self.radius) and self.y < OUTER_HEIGHT:
+                self.alive = False
+                explosions.append(Explosion(self.x, self.y, self.z, max_r=14.0))
+                break
+
+        if not small_pillars_destroyed and self.alive:
+            for k in range(INNER_COUNT):
+                ang = 2 * math.pi * k / INNER_COUNT
+                px = INNER_RING_R * math.cos(ang)
+                pz = INNER_RING_R * math.sin(ang)
+                d = math.sqrt((self.x - px)**2 + (self.z - pz)**2)
+                if d < (INNER_BASE_R + self.radius) and self.y < INNER_HEIGHT:
+                    self.alive = False
+                    explosions.append(Explosion(self.x, self.y, self.z, max_r=14.0))
+                    break
+
+# =============================================================================
+#  SHARED QUADRIC OBJECT
+# =============================================================================
+_Q = None
+def Q():
+    global _Q
+    if _Q is None:
+        _Q = gluNewQuadric()
+    return _Q
+
+# =============================================================================
+#  ARENA GEOMETRY (Cracked Magma Floor, Walls, Pillars)
+# =============================================================================
+_floor_cache = None
+
+def _build_floor():
+    global _floor_cache
+    _floor_cache = {'lava': [], 'plates': []}
+    S = 60
+    for i in range(S):
+        t1 = 2*math.pi*i/S;  t2 = 2*math.pi*(i+1)/S
+        _floor_cache['lava'].append((
+            (0, 0, 0),
+            (ARENA_RADIUS*math.cos(t1), 0, ARENA_RADIUS*math.sin(t1)),
+            (ARENA_RADIUS*math.cos(t2), 0, ARENA_RADIUS*math.sin(t2)),
+        ))
+    rng    = random.Random(7)
+    step   = 22.0
+    half   = int(ARENA_RADIUS/step) + 2
+    shrink = 0.80
+    verts  = {}
+    for i in range(-half, half+1):
+        for j in range(-half, half+1):
+            x = i*step + rng.uniform(-step*0.38, step*0.38)
+            z = j*step + rng.uniform(-step*0.38, step*0.38)
+            verts[(i,j)] = (x, z)
+    for i in range(-half, half):
+        for j in range(-half, half):
+            v1=verts[(i,j)];    v2=verts[(i+1,j)]
+            v3=verts[(i+1,j+1)]; v4=verts[(i,j+1)]
+            cx = (v1[0]+v2[0]+v3[0]+v4[0]) / 4
+            cz = (v1[1]+v2[1]+v3[1]+v4[1]) / 4
+            if cx*cx + cz*cz > ARENA_RADIUS*ARENA_RADIUS:
+                continue
+            def s(v, cx=cx, cz=cz):
+                return (cx+(v[0]-cx)*shrink, cz+(v[1]-cz)*shrink)
+            w1=s(v1); w2=s(v2); w3=s(v3); w4=s(v4)
+            _floor_cache['plates'].extend([
+                (w1[0],0.18,w1[1]),(w2[0],0.18,w2[1]),
+                (w3[0],0.18,w3[1]),(w4[0],0.18,w4[1]),
+            ])
+
+def draw_floor():
+    if _floor_cache is None:
+        _build_floor()
+    glBegin(GL_TRIANGLES)
+    for tri in _floor_cache['lava']:
+        glColor3f(0.80,0.26,0.0); glVertex3f(*tri[0])
+        glColor3f(0.52,0.08,0.0); glVertex3f(*tri[1]); glVertex3f(*tri[2])
+    glEnd()
+    glBegin(GL_QUADS)
+    glColor3f(0.07,0.02,0.02)
+    for v in _floor_cache['plates']:
+        glVertex3f(*v)
+    glEnd()
+
+def draw_floor_occluder():
+    glBegin(GL_TRIANGLES)
+    glColor3f(0.02, 0.01, 0.01)
+    S = 48; R = ARENA_RADIUS + 250.0
+    for i in range(S):
+        t1=2*math.pi*i/S; t2=2*math.pi*(i+1)/S
+        glVertex3f(0, -2, 0)
+        glVertex3f(R*math.cos(t1), -2, R*math.sin(t1))
+        glVertex3f(R*math.cos(t2), -2, R*math.sin(t2))
+    glEnd()
+
+_wall_cache = None
+WALL_COLORS = {'out': (0.13,0.045,0.04), 'inn': (0.13,0.045,0.04), 'top': (0.13,0.045,0.04)}
+
+def _build_wall():
+    global _wall_cache
+    segments = []
+    S=72; thick=20.0; Ro=ARENA_RADIUS; Ri=ARENA_RADIUS-thick
+    for i in range(S):
+        a1=2*math.pi*i/S; a2=2*math.pi*(i+1)/S
+        ox1,oz1 = Ro*math.cos(a1), Ro*math.sin(a1)
+        ox2,oz2 = Ro*math.cos(a2), Ro*math.sin(a2)
+        ix1,iz1 = Ri*math.cos(a1), Ri*math.sin(a1)
+        ix2,iz2 = Ri*math.cos(a2), Ri*math.sin(a2)
+
+        out_q = ((ox1,0,oz1),(ox2,0,oz2),(ox2,WALL_HEIGHT,oz2),(ox1,WALL_HEIGHT,oz1))
+        inn_q = ((ix2,0,iz2),(ix1,0,iz1),(ix1,WALL_HEIGHT,iz1),(ix2,WALL_HEIGHT,iz2))
+        top_q = ((ix1,WALL_HEIGHT,iz1),(ix2,WALL_HEIGHT,iz2),(ox2,WALL_HEIGHT,oz2),(ox1,WALL_HEIGHT,oz1))
+        mid_a = (a1+a2)/2.0
+        rep_point = (Ro*math.cos(mid_a), WALL_HEIGHT*0.5, Ro*math.sin(mid_a))
+        segments.append((rep_point, [
+            (WALL_COLORS['out'], out_q),
+            (WALL_COLORS['inn'], inn_q),
+            (WALL_COLORS['top'], top_q),
+        ]))
+    _wall_cache = segments
+
+def draw_wall_rim_accent():
+    Ri = ARENA_RADIUS - 20.0
+    glBegin(GL_LINES)
+    glColor3f(0.92,0.32,0.0)
+    for i in range(72):
+        a1=2*math.pi*i/72; a2=2*math.pi*(i+1)/72
+        glVertex3f(Ri*math.cos(a1),0.8,Ri*math.sin(a1))
+        glVertex3f(Ri*math.cos(a2),0.8,Ri*math.sin(a2))
+    glEnd()
+
+def draw_ceiling_rim():
+    for r_off, col in [(0,(0.50,0.05,0.05)),(10,(0.35,0.03,0.03)),(20,(0.22,0.02,0.02))]:
+        r = ARENA_RADIUS - r_off
+        glBegin(GL_LINES)
+        glColor3f(*col)
+        for i in range(80):
+            a1=2*math.pi*i/80; a2=2*math.pi*(i+1)/80
+            glVertex3f(r*math.cos(a1), WALL_HEIGHT, r*math.sin(a1))
+            glVertex3f(r*math.cos(a2), WALL_HEIGHT, r*math.sin(a2))
+        glEnd()
+
+def draw_small_pillar():
+    segs = 20
+    glColor3f(0.55, 0.54, 0.51)
+    gluCylinder(Q(), INNER_BASE_R, INNER_TOP_R, INNER_HEIGHT, segs, 1)
+
+    glBegin(GL_TRIANGLES)
+    glColor3f(0.55, 0.54, 0.51)
+    for i in range(segs):
+        a1 = 2*math.pi*i/segs; a2 = 2*math.pi*(i+1)/segs
+        glVertex3f(0, 0, INNER_HEIGHT)
+        glVertex3f(INNER_TOP_R*math.cos(a1), INNER_TOP_R*math.sin(a1), INNER_HEIGHT)
+        glVertex3f(INNER_TOP_R*math.cos(a2), INNER_TOP_R*math.sin(a2), INNER_HEIGHT)
+    glEnd()
+
+def draw_large_pillar():
+    segs = 20
+    H    = OUTER_HEIGHT
+    Rb   = OUTER_BASE_R
+    Rt   = OUTER_TOP_R
+
+    plinth_h = 9.0
+    pw = Rb * 1.55
+    glBegin(GL_QUADS)
+    glColor3f(0.15, 0.05, 0.05)
+    for dx,dy,ex,ey in [(-pw,-pw,pw,-pw),(pw,-pw,pw,pw),(pw,pw,-pw,pw),(-pw,pw,-pw,-pw)]:
+        glVertex3f(dx, dy, 0)
+        glVertex3f(ex, ey, 0)
+        glVertex3f(ex, ey, plinth_h)
+        glVertex3f(dx, dy, plinth_h)
+    glColor3f(0.22, 0.08, 0.06)
+    glVertex3f(-pw,-pw,plinth_h); glVertex3f(pw,-pw,plinth_h)
+    glVertex3f( pw, pw,plinth_h); glVertex3f(-pw, pw,plinth_h)
+    glEnd()
+
+    glPushMatrix()
+    glTranslatef(0, 0, plinth_h)
+    body_h = H - plinth_h - 12.0
+
+    glColor3f(0.14, 0.045, 0.04)
+    gluCylinder(Q(), Rb, Rt, body_h, segs, 1)
+
+    for frac in [0.0, 0.33, 0.66, 1.0]:
+        bp = frac * body_h
+        br = Rb + (Rt-Rb)*frac + 2.8
+        bh = 6.0
+        glPushMatrix()
+        glTranslatef(0, 0, bp)
+        glColor3f(0.10, 0.03, 0.03)
+        gluCylinder(Q(), br, br, bh, segs, 1)
+        glBegin(GL_TRIANGLES)
+        glColor3f(0.20, 0.07, 0.05)
+        for i in range(segs):
+            a1=2*math.pi*i/segs; a2=2*math.pi*(i+1)/segs
+            glVertex3f(0, 0, bh)
+            glVertex3f(br*math.cos(a2), br*math.sin(a2), bh)
+            glVertex3f(br*math.cos(a1), br*math.sin(a1), bh)
+        glEnd()
+        glPopMatrix()
+
+    glPopMatrix()
+
+    cap_z = H - 12.0; cap_w = Rt*1.80; cap_h = 12.0
+    glBegin(GL_QUADS)
+    glColor3f(0.13, 0.04, 0.04)
+    for dx,dy,ex,ey in [(-cap_w,-cap_w,cap_w,-cap_w),(cap_w,-cap_w,cap_w,cap_w),
+                         (cap_w,cap_w,-cap_w,cap_w),(-cap_w,cap_w,-cap_w,-cap_w)]:
+        glVertex3f(dx, dy, cap_z)
+        glVertex3f(ex, ey, cap_z)
+        glVertex3f(ex, ey, cap_z+cap_h)
+        glVertex3f(dx, dy, cap_z+cap_h)
+    glColor3f(0.24, 0.09, 0.07)
+    glVertex3f(-cap_w,-cap_w,cap_z+cap_h); glVertex3f(cap_w,-cap_w,cap_z+cap_h)
+    glVertex3f( cap_w, cap_w,cap_z+cap_h); glVertex3f(-cap_w, cap_w,cap_z+cap_h)
+    glEnd()
+
+# =============================================================================
+#  CHARACTER 3D MODELS
+# =============================================================================
+def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
+    if first_person:
+        return
+
+    glPushMatrix()
+    glTranslatef(player_pos[0], player_pos[1], player_pos[2])
+    glRotatef(player_yaw + 180.0, 0, 1, 0)
+    glRotatef(-90.0, 1, 0, 0)
+
+    scale_f = 0.08
+    if crouching:
+        glScalef(scale_f, scale_f * 0.6, scale_f)
+    else:
+        glScalef(scale_f, scale_f, scale_f)
+
+    glTranslatef(0, 0, 10.0)
+
+    c_body   = (222/255, 137/255, 34/255)
+    c_dark   = (117/255, 76/255, 18/255)
+    c_goggle = (229/255, 230/255, 230/255)
+    c_white  = (1.0, 1.0, 1.0)
+
+    rad_yaw = math.radians(player_yaw)
+    fwd_x = math.sin(rad_yaw)
+    fwd_z = math.cos(rad_yaw)
+    to_cam_x = cam_x - player_pos[0]
+    to_cam_z = cam_z - player_pos[2]
+    is_front = (fwd_x * to_cam_x + fwd_z * to_cam_z) > 0.0
+
+    def draw_face_details():
+        for eye_x in [-16, 16]:
+            glPushMatrix()
+            glColor3f(*c_goggle)
+            glTranslatef(eye_x, 21, 140)
+            glScalef(0.28, 0.08, 0.35)
+            glutSolidCube(100)
+            glPopMatrix()
+
+            glPushMatrix()
+            glColor3f(*c_white)
+            glTranslatef(eye_x, 25, 140)
+            glScalef(0.18, 0.08, 0.22)
+            glutSolidCube(100)
+            glPopMatrix()
+
+            glPushMatrix()
+            glColor3f(*c_dark)
+            glTranslatef(eye_x, 29, 140)
+            glScalef(0.08, 0.05, 0.1)
+            glutSolidCube(100)
+            glPopMatrix()
+
+            glPushMatrix()
+            glColor3f(*c_dark)
+            glTranslatef(eye_x, 22, 162)
+            glScalef(0.25, 0.06, 0.06)
+            glutSolidCube(100)
+            glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(0, 22, 120)
+        glScalef(0.06, 0.06, 0.16)
+        glutSolidCube(100)
+        glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(-2, 22, 105)
+        glScalef(0.38, 0.06, 0.06)
+        glutSolidCube(100)
+        glPopMatrix()
+
+    if not is_front:
+        draw_face_details()
+
+    glPushMatrix()
+    glColor3f(*c_body)
+    glTranslatef(0, 0, 95)
+    glScalef(0.65, 0.4, 1.5)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    if is_front:
+        draw_face_details()
+
+    # Left Arm
+    glPushMatrix()
+    glColor3f(*c_body)
+    glTranslatef(-38.5, 0, 85)
+    glScalef(0.12, 0.2, 0.8)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    # Right Arm
+    glPushMatrix()
+    glColor3f(*c_body)
+    glTranslatef(38.5, 0, 85)
+    if arm_throw_timer > 0:
+        throw_angle = math.sin((14.0 - arm_throw_timer) / 14.0 * math.pi) * 55.0
+        glRotatef(-throw_angle, 1, 0, 0)
+    glScalef(0.12, 0.2, 0.8)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    leg_swing = math.sin(walk_anim_phase) * 20.0
+
+    glPushMatrix()
+    glTranslatef(-14, 0, 10)
+    glRotatef(leg_swing, 1, 0, 0)
+    glColor3f(*c_dark)
+    glScalef(0.14, 0.18, 0.28)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    glPushMatrix()
+    glTranslatef(-14, 8, -5)
+    glRotatef(leg_swing, 1, 0, 0)
+    glColor3f(*c_dark)
+    glScalef(0.22, 0.36, 0.10)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    glPushMatrix()
+    glTranslatef(14, 0, 10)
+    glRotatef(-leg_swing, 1, 0, 0)
+    glColor3f(*c_dark)
+    glScalef(0.14, 0.18, 0.28)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    glPushMatrix()
+    glTranslatef(14, 8, -5)
+    glRotatef(-leg_swing, 1, 0, 0)
+    glColor3f(*c_dark)
+    glScalef(0.22, 0.36, 0.10)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    glPopMatrix()
+
+def draw_evil_larry_boss():
+    if evil_larry_hp <= 0:
+        return
+
+    glPushMatrix()
+    glTranslatef(evil_larry_pos[0], evil_larry_pos[1], evil_larry_pos[2])
+    glRotatef(evil_larry_yaw + 180.0, 0, 1, 0)
+    glRotatef(-90.0, 1, 0, 0)
+
+    scale_boss = 0.72
+    glScalef(scale_boss, scale_boss, scale_boss)
+
+    if evil_larry_hit_flash > 0:
+        c_black = (0.85, 0.15, 0.15)
+    else:
+        c_black = (0.02, 0.02, 0.02)
+
+    if small_pillars_destroyed:
+        c_inner_ear  = (0.55, 0.04, 0.04)
+        c_eye_white  = (0.75, 0.05, 0.05)
+        c_pupil      = (0.20, 0.00, 0.00)
+    else:
+        c_inner_ear  = (0.35, 0.35, 0.35)
+        c_eye_white  = (0.95, 0.95, 0.95)
+        c_pupil      = (0.02, 0.02, 0.02)
+
+    c_nose_mouth = (0.95, 0.95, 0.95)
+
+    # 1. Main Body
+    glPushMatrix()
+    glColor3f(*c_black)
+    glTranslatef(0, 0, 45)
+    glScalef(1.2, 0.6, 0.9)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    # 2. Rounded Head
+    glPushMatrix()
+    glColor3f(*c_black)
+    glTranslatef(0, 0, 100)
+    glScalef(1.2, 0.6, 0.8)
+    gluSphere(Q(), 50, 16, 16)
+    glPopMatrix()
+
+    # 3. Pointed Ears
+    for side, angle in [(-32, -8), (32, 8)]:
+        glPushMatrix()
+        glColor3f(*c_black)
+        glTranslatef(side, 0, 115)
+        glRotatef(angle, 0, 1, 0)
+        gluCylinder(Q(), 22, 0, 70, 14, 14)
+        glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(*c_inner_ear)
+        glTranslatef(side, 0, 115)
+        glRotatef(angle, 0, 1, 0)
+        glBegin(GL_TRIANGLES)
+        glVertex3f(-8, 20, 10)
+        glVertex3f(8, 20, 10)
+        glVertex3f(0, 12, 52)
+        glEnd()
+        glPopMatrix()
+
+    # 4. Prominent Eyes & Pupils
+    for eye_x in [-22, 22]:
+        glPushMatrix()
+        glColor3f(*c_eye_white)
+        glTranslatef(eye_x, 32, 100)
+        glScalef(1.0, 0.35, 1.0)
+        gluSphere(Q(), 17, 16, 16)
+        glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(*c_pupil)
+        glTranslatef(eye_x, 35, 106)
+        glScalef(0.7, 0.35, 0.95)
+        gluSphere(Q(), 11.0, 14, 14)
+        glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(0.02, 0.02, 0.02)
+        glTranslatef(eye_x, 36, 114)
+        glScalef(0.42, 0.18, 0.14)
+        glutSolidCube(100)
+        glPopMatrix()
+
+    # 5. Nose & Mouth
+    glPushMatrix()
+    glColor3f(*c_nose_mouth)
+    glTranslatef(0, 34, 88)
+    glScalef(1.1, 0.45, 0.9)
+    gluSphere(Q(), 4.5, 10, 10)
+    glPopMatrix()
+
+    glPushMatrix()
+    glColor3f(*c_nose_mouth)
+    glTranslatef(0, 33, 80)
+    glScalef(0.03, 0.03, 0.14)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    for side, sign in [(-3, 35), (3, -35)]:
+        glPushMatrix()
+        glColor3f(*c_nose_mouth)
+        glTranslatef(side, 33, 74)
+        glRotatef(sign, 0, 1, 0)
+        glScalef(0.10, 0.03, 0.03)
+        glutSolidCube(100)
+        glPopMatrix()
+
+    # 6. Whiskers
+    glColor3f(0.05, 0.05, 0.05)
+    glBegin(GL_LINES)
+    glVertex3f(-45, 20, 104); glVertex3f(-95, 20, 108)
+    glVertex3f(-45, 20, 96);  glVertex3f(-98, 20, 96)
+    glVertex3f(-45, 20, 88);  glVertex3f(-95, 20, 84)
+    glVertex3f(45, 20, 104);  glVertex3f(95, 20, 108)
+    glVertex3f(45, 20, 96);   glVertex3f(98, 20, 96)
+    glVertex3f(45, 20, 88);   glVertex3f(95, 20, 84)
+    glEnd()
+
+    glPopMatrix()
+
+def draw_single_small_larry(sl):
+    if not sl.alive:
+        return
+
+    glPushMatrix()
+    glTranslatef(sl.x, sl.y, sl.z)
+    glRotatef(sl.yaw + 180.0, 0, 1, 0)
+    glRotatef(-90.0, 1, 0, 0)
+
+    scale_small = 0.13
+    glScalef(scale_small, scale_small, scale_small)
+
+    if sl.charmed:
+        c_body = (0.1, 0.85, 1.0)
+        c_dark = (0.0, 0.50, 0.85)
+        c_inner_ear = (0.7, 0.95, 1.0)
+    elif sl.hit_flash > 0:
+        c_body = (1.0, 0.3, 0.3)
+        c_dark = (0.8, 0.1, 0.1)
+        c_inner_ear  = (0.9, 0.7, 0.6)
+    else:
+        c_body = (212/255, 155/255, 95/255)
+        c_dark = (140/255, 90/255, 45/255)
+        c_inner_ear  = (0.9, 0.7, 0.6)
+
+    c_eye_white  = (1.0, 1.0, 1.0)
+    c_eye_black  = (0.05, 0.05, 0.05)
+    c_nose_mouth = (0.95, 0.95, 0.95)
+
+    # 1. Main Body
+    glPushMatrix()
+    glColor3f(*c_body)
+    glTranslatef(0, 0, 45)
+    glScalef(1.2, 0.6, 0.9)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    # 2. Rounded Head
+    glPushMatrix()
+    glColor3f(*c_body)
+    glTranslatef(0, 0, 100)
+    glScalef(1.2, 0.6, 0.8)
+    gluSphere(Q(), 50, 14, 14)
+    glPopMatrix()
+
+    # 3. Pointed Ears
+    for side, angle in [(-32, -8), (32, 8)]:
+        glPushMatrix()
+        glColor3f(*c_body)
+        glTranslatef(side, 0, 115)
+        glRotatef(angle, 0, 1, 0)
+        gluCylinder(Q(), 22, 0, 70, 12, 12)
+        glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(*c_inner_ear)
+        glTranslatef(side, 0, 115)
+        glRotatef(angle, 0, 1, 0)
+        glBegin(GL_TRIANGLES)
+        glVertex3f(-8, 20, 10); glVertex3f(8, 20, 10); glVertex3f(0, 12, 52)
+        glEnd()
+        glPopMatrix()
+
+    # 4. Eyes & Pupils
+    for eye_x in [-22, 22]:
+        glPushMatrix()
+        glColor3f(*c_eye_white)
+        glTranslatef(eye_x, 32, 100)
+        glScalef(1.0, 0.35, 1.0)
+        gluSphere(Q(), 17, 14, 14)
+        glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(*c_eye_black)
+        glTranslatef(eye_x, 35, 106)
+        glScalef(0.7, 0.35, 0.95)
+        gluSphere(Q(), 11.0, 12, 12)
+        glPopMatrix()
+
+    # 5. Nose & Mouth
+    glPushMatrix()
+    glColor3f(*c_nose_mouth)
+    glTranslatef(0, 34, 88)
+    glScalef(1.1, 0.45, 0.9)
+    gluSphere(Q(), 4.5, 10, 10)
+    glPopMatrix()
+
+    glPushMatrix()
+    glColor3f(*c_nose_mouth)
+    glTranslatef(0, 33, 80)
+    glScalef(0.03, 0.03, 0.14)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    # 6. Charmed Sparkle Halo
+    if sl.charmed:
+        glPointSize(6)
+        glBegin(GL_POINTS)
+        for ang in range(0, 360, 45):
+            r = math.radians(ang + sl.sparkle_rot)
+            glColor3f(0.2, 0.95, 1.0)
+            glVertex3f(math.cos(r) * 75, math.sin(r) * 75, 120)
+        glEnd()
+
+    glPopMatrix()
+
+def draw_bombs():
+    for b in bombs:
+        if not b.alive:
+            continue
+        glPushMatrix()
+        glTranslatef(b.x, b.y, b.z)
+        glRotatef(b.rot, 1, 1, 0)
+        glColor3f(0.12, 0.12, 0.12)
+        gluSphere(Q(), 4.0, 10, 10)
+        glTranslatef(0.0, 4.0, 0.0)
+        glColor3f(1.0, 0.55, 0.0)
+        gluSphere(Q(), 1.4, 6, 6)
+        glPopMatrix()
+
+def draw_catnips():
+    for cn in catnips:
+        if not cn.alive:
+            continue
+        glPushMatrix()
+        glTranslatef(cn.x, cn.y, cn.z)
+        glRotatef(cn.rot, 1, 1, 0)
+        glColor3f(0.0, 0.70, 1.0)
+        glutSolidCube(5.0)
+        glColor3f(0.3, 0.95, 1.0)
+        gluSphere(Q(), 3.2, 8, 8)
+        glPopMatrix()
+
+def draw_explosions():
+    for exp in explosions:
+        if exp.life <= 0:
+            continue
+        glPushMatrix()
+        glTranslatef(exp.x, exp.y, exp.z)
+        alpha = exp.life / float(exp.max_life)
+        if exp.is_blue:
+            glColor3f(0.1 * alpha, 0.85 * alpha, 1.0 * alpha)
+        else:
+            glColor3f(1.0 * alpha, 0.45 * alpha, 0.05 * alpha)
+        gluSphere(Q(), exp.radius, 10, 10)
+        glPointSize(4)
+        glBegin(GL_POINTS)
+        for p in exp.particles:
+            if exp.is_blue:
+                glColor3f(0.4 * alpha, 0.95 * alpha, 1.0 * alpha)
+            else:
+                glColor3f(1.0, 0.85 * alpha, 0.2 * alpha)
+            glVertex3f(p[0], p[1], p[2])
+        glEnd()
+        glPopMatrix()
+
+def draw_hairballs_and_puddles():
+    for hb in hairballs:
+        if not hb.alive:
+            continue
+        glPushMatrix()
+        glTranslatef(hb.x, hb.y, hb.z)
+        glRotatef(hb.rot, 1, 1, 0)
+        glColor3f(0.20, 0.85, 0.10)
+        gluSphere(Q(), 9.5, 12, 12)
+        glColor3f(0.35, 0.95, 0.15)
+        gluSphere(Q(), 7.0, 8, 8)
+        glPointSize(6)
+        glBegin(GL_POINTS)
+        for a in range(0, 360, 40):
+            rad_hb = math.radians(a + hb.rot)
+            glColor3f(0.40, 1.0, 0.20)
+            glVertex3f(math.cos(rad_hb) * 11.5, math.sin(rad_hb) * 11.5, 0)
+            glVertex3f(0, math.cos(rad_hb) * 11.5, math.sin(rad_hb) * 11.5)
+        glEnd()
+        glPopMatrix()
+
+    for pd in hairball_puddles:
+        if pd.life <= 0:
+            continue
+        alpha = pd.life / float(pd.max_life)
+        glBegin(GL_TRIANGLES)
+        segs = 28
+        for i in range(segs):
+            a1 = 2 * math.pi * i / segs
+            a2 = 2 * math.pi * (i + 1) / segs
+            glColor3f(0.20 * alpha, 0.75 * alpha, 0.12 * alpha)
+            glVertex3f(pd.x, 0.35, pd.z)
+            glColor3f(0.10 * alpha, 0.40 * alpha, 0.06 * alpha)
+            glVertex3f(pd.x + math.cos(a1) * pd.radius, 0.35, pd.z + math.sin(a1) * pd.radius)
+            glVertex3f(pd.x + math.cos(a2) * pd.radius, 0.35, pd.z + math.sin(a2) * pd.radius)
+        glEnd()
+
+        glPointSize(5)
+        glBegin(GL_POINTS)
+        glColor3f(0.45 * alpha, 1.0 * alpha, 0.25 * alpha)
+        for b in pd.bubbles:
+            glVertex3f(pd.x + b[0], b[1], pd.z + b[2])
+        glEnd()
+
+def draw_pounce_effects():
+    if pounce_state in ['WINDUP', 'AIR']:
+        glBegin(GL_LINES)
+        glColor3f(1.0, 0.15, 0.15)
+        segs = 36
+        r = 38.0
+        for i in range(segs):
+            a1 = 2 * math.pi * i / segs
+            a2 = 2 * math.pi * (i + 1) / segs
+            glVertex3f(pounce_target[0] + math.cos(a1) * r, 0.6, pounce_target[1] + math.sin(a1) * r)
+            glVertex3f(pounce_target[0] + math.cos(a2) * r, 0.6, pounce_target[1] + math.sin(a2) * r)
+        glVertex3f(pounce_target[0] - 15, 0.6, pounce_target[1] - 15)
+        glVertex3f(pounce_target[0] + 15, 0.6, pounce_target[1] + 15)
+        glVertex3f(pounce_target[0] - 15, 0.6, pounce_target[1] + 15)
+        glVertex3f(pounce_target[0] + 15, 0.6, pounce_target[1] - 15)
+        glEnd()
+
+    if pounce_shockwave_life > 0:
+        fade = pounce_shockwave_life / 25.0
+        glBegin(GL_LINES)
+        glColor3f(1.0 * fade, 0.6 * fade, 0.1 * fade)
+        segs = 40
+        for i in range(segs):
+            a1 = 2 * math.pi * i / segs
+            a2 = 2 * math.pi * (i + 1) / segs
+            glVertex3f(pounce_target[0] + math.cos(a1) * pounce_shockwave_r, 0.8, pounce_target[1] + math.sin(a1) * pounce_shockwave_r)
+            glVertex3f(pounce_target[0] + math.cos(a2) * pounce_shockwave_r, 0.8, pounce_target[1] + math.sin(a2) * pounce_shockwave_r)
+        glEnd()
+
+def draw_boss_projectiles():
+    for bp in boss_projectiles:
+        if not bp.alive:
+            continue
+        glPushMatrix()
+        glTranslatef(bp.x, bp.y, bp.z)
+        glRotatef(bp.rot, 1, 0, 1)
+        glColor3f(0.95, 0.20, 0.95)
+        gluSphere(Q(), bp.radius, 12, 12)
+        glColor3f(1.0, 0.85, 1.0)
+        gluSphere(Q(), bp.radius * 0.55, 8, 8)
+        glPointSize(4)
+        glBegin(GL_POINTS)
+        for a in range(0, 360, 60):
+            rad_bp = math.radians(a + bp.rot)
+            glColor3f(1.0, 0.5, 1.0)
+            glVertex3f(math.cos(rad_bp) * (bp.radius + 3.0), math.sin(rad_bp) * (bp.radius + 3.0), 0)
+        glEnd()
+        glPopMatrix()
+
+# =============================================================================
+#  2D HUD & OVERLAY RENDERING
+# =============================================================================
+def draw_text(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18):
+    glColor3f(*color)
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, WIN_W, 0, WIN_H)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    glRasterPos2f(x, y)
+    for ch in text_str:
+        glutBitmapCharacter(font, ord(ch))
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
+def draw_text_bold(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18):
+    for dx in [-1.0, 0.0, 1.0]:
+        for dy in [-1.0, 0.0, 1.0]:
+            draw_text(x + dx, y + dy, text_str, color=color, font=font)
+
+def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(1.0, 1.0, 1.0)):
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, WIN_W, 0, WIN_H)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+
+    glBegin(GL_LINES)
+    glColor3f(*border_color)
+    glVertex2f(x, y); glVertex2f(x + w, y)
+    glVertex2f(x + w, y); glVertex2f(x + w, y + h)
+    glVertex2f(x + w, y + h); glVertex2f(x, y + h)
+    glVertex2f(x, y + h); glVertex2f(x, y)
+    glEnd()
+
+    fill_w = max(0.0, min(1.0, fill_pct)) * (w - 2)
+    if fill_w > 0:
+        glBegin(GL_QUADS)
+        glColor3f(*fill_color)
+        glVertex2f(x + 1, y + 1)
+        glVertex2f(x + 1 + fill_w, y + 1)
+        glVertex2f(x + 1 + fill_w, y + h - 1)
+        glVertex2f(x + 1, y + h - 1)
+        glEnd()
+
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
+def draw_crosshair():
+    cx, cy = WIN_W // 2, WIN_H // 2
+    size = 10
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, WIN_W, 0, WIN_H)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+
+    glBegin(GL_LINES)
+    glColor3f(1.0, 0.2, 0.2)
+    glVertex2f(cx - size, cy); glVertex2f(cx + size, cy)
+    glVertex2f(cx, cy - size); glVertex2f(cx, cy + size)
+    glEnd()
+
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
+def draw_hud():
+    # 1. Main Character Health Bar at BOTTOM LEFT corner (Level 3 Style)
+    pw, ph = 220, 16
+    px, py = 25, 25
+    player_pct = player_hits_left / float(MAX_PLAYER_HITS)
+    draw_bar_2d(px, py, pw, ph, player_pct, (0.1, 0.9, 0.2), border_color=(0.9, 0.9, 0.9))
+
+    # Active Weapon Display
+    w_name = "BOMB / GRENADE" if active_weapon == "gun" else "GLOWING CATNIP"
+    draw_text(px, py + 26, f"WEAPON: {w_name} (Press 'F' to switch | Click LMB to shoot)", color=(0.0, 0.95, 1.0), font=GLUT_BITMAP_HELVETICA_18)
+
+    if speed_boost_duration_timer > 0:
+        secs_left = speed_boost_duration_timer / 60.0
+        draw_text(px, py + 48, f'SPEED BOOST: {secs_left:.1f}s', color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
+
+    # 2. Cheat Mode text at TOP RIGHT corner
+    if cheat_mode:
+        draw_text_bold(WIN_W - 220, WIN_H - 35, 'CHEAT MODE ON', color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
+
+    # 3. Boss Name Header, Health Bar (TOP) & Shield Bar (BOTTOM) at TOP CENTER
+    bar_w, bar_h = 380, 15
+    bx = (WIN_W - bar_w) // 2
+    by_name   = WIN_H - 24
+    by_hp     = WIN_H - 45
+    by_shield = WIN_H - 66
+
+    draw_text_bold(WIN_W // 2 - 55, by_name, 'EVIL LARRY', color=(1.0, 0.25, 0.25), font=GLUT_BITMAP_HELVETICA_18)
+
+    # Top: Red HP
+    hp_pct = evil_larry_hp / EVIL_LARRY_MAX_HP
+    draw_bar_2d(bx, by_hp, bar_w, bar_h, hp_pct, (1.0, 0.1, 0.1), border_color=(0.9, 0.9, 0.9))
+
+    # Bottom: Ash Shield
+    shield_pct = evil_larry_shield / EVIL_LARRY_MAX_SHIELD
+    draw_bar_2d(bx, by_shield, bar_w, bar_h, shield_pct, (0.55, 0.54, 0.51), border_color=(0.9, 0.9, 0.9))
+
+    # 4. Boss MEOWWWW Text
+    if meow_timer > 0:
+        draw_text_bold(WIN_W // 2 - 250, WIN_H // 2 + 55, 'MEOWWWWWWWWWWWW!!!!!!!!!!!!!!!!!!', color=(1.0, 0.15, 0.15), font=GLUT_BITMAP_HELVETICA_18)
+
+    # 5. Pause Banner
+    if is_paused:
+        draw_text_bold(WIN_W // 2 - 120, WIN_H // 2 + 10, "=== GAME PAUSED ===", color=(1.0, 0.9, 0.1))
+        draw_text(WIN_W // 2 - 100, WIN_H // 2 - 20, "Press 'P' to Resume Combat", color=(1.0, 1.0, 1.0))
+
+    # 6. End Game Messages
+    if is_game_over:
+        draw_text_bold(WIN_W // 2 - 120, WIN_H // 2 + 25, 'MISSION FAILED!', color=(1.0, 0.1, 0.1), font=GLUT_BITMAP_HELVETICA_18)
+        draw_text_bold(WIN_W // 2 - 85, WIN_H // 2 - 15, 'Press R to retry.', color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
+
+    if is_level_cleared:
+        draw_text_bold(WIN_W // 2 - 145, WIN_H // 2 + 35, 'CONGRATULATIONS!!!', color=(0.2, 1.0, 0.4), font=GLUT_BITMAP_HELVETICA_18)
+        draw_text_bold(WIN_W // 2 - 340, WIN_H // 2 - 5, 'YOU HAVE DEFEATED EVIL LARRY AND SAVED THE WORLD!', color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
+        draw_text_bold(WIN_W // 2 - 105, WIN_H // 2 - 45, 'Press R to play again.', color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
+
+# =============================================================================
+#  SPAWNING & COMBAT LOGIC
+# =============================================================================
+def spawn_one_small_larry():
+    global small_larrys_spawned_count
+    if small_larrys_spawned_count >= TOTAL_SMALL_LARRY_ALLOWED or evil_larry_shield_broken:
+        return
+    angle = random.uniform(0, 2*math.pi)
+    dist  = random.uniform(140.0, 460.0)
+    sx = math.cos(angle) * dist
+    sz = math.sin(angle) * dist
+    small_larrys.append(SmallLarry(sx, sz))
+    small_larrys_spawned_count += 1
+
+def fire_weapon():
+    global weapon_cooldown, arm_throw_timer
+
+    if weapon_cooldown > 0 or is_game_over or is_level_cleared or is_paused:
+        return
+
+    weapon_cooldown = WEAPON_COOLDOWN_MAX
+    arm_throw_timer = 14
+
+    clamped_pitch = max(-10.0, min(25.0, player_pitch))
+    rad = math.radians(player_yaw)
+    rad_pitch = math.radians(clamped_pitch)
+
+    bx = player_pos[0] + math.sin(rad) * 8.0 + math.cos(rad) * 6.0
+    by = player_pos[1] + 16.0
+    bz = player_pos[2] + math.cos(rad) * 8.0 - math.sin(rad) * 6.0
+
+    throw_speed = 5.2
+    vx = math.sin(rad) * math.cos(rad_pitch) * throw_speed
+    vy = math.sin(rad_pitch) * throw_speed + 0.35
+    vz = math.cos(rad) * math.cos(rad_pitch) * throw_speed
+
+    if active_weapon == "gun":
+        bombs.append(Bomb(bx, by, bz, vx, vy, vz))
+    else:
+        catnips.append(CatnipProjectile(bx, by, bz, vx, vy, vz))
+
+# =============================================================================
+#  IDLE GAME UPDATE LOOP
+# =============================================================================
+def idle():
+    global player_pos, is_jumping, y_velocity, player_speed, player_hits_left
+    global arm_throw_timer, walk_anim_phase, is_moving
+    global speed_boost_duration_timer, player_invulnerable_timer
+    global evil_larry_pos, evil_larry_yaw, evil_larry_shield, evil_larry_hp
+    global evil_larry_shield_broken, evil_larry_hit_flash, small_pillars_destroyed
+    global weapon_cooldown, is_game_over, is_level_cleared, score, meow_timer
+    global player_yaw, player_pitch, last_mouse_x, last_mouse_y, mouse_initialized
+
+    if is_paused or is_game_over or is_level_cleared:
+        glutPostRedisplay()
+        return
+
+    # Update Mouse Aiming
+    try:
+        class _POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        _pt = _POINT()
+        if ctypes.windll.user32.GetCursorPos(ctypes.byref(_pt)):
+            if mouse_initialized:
+                dx = _pt.x - last_mouse_x
+                dy = _pt.y - last_mouse_y
+                if dx != 0 or dy != 0:
+                    mouse_sensitivity = 0.28
+                    player_yaw = (player_yaw + dx * mouse_sensitivity) % 360.0
+                    player_pitch = max(-65.0, min(65.0, player_pitch - dy * mouse_sensitivity))
+            else:
+                mouse_initialized = True
+            last_mouse_x = _pt.x
+            last_mouse_y = _pt.y
+    except:
+        pass
+
+    # Update Jumping & Gravity
+    if is_jumping:
+        player_pos[1] += y_velocity
+        y_velocity += gravity
+        if player_pos[1] <= ground_y:
+            player_pos[1] = ground_y
+            is_jumping = False
+            y_velocity = 0.0
+
+    if speed_boost_duration_timer > 0:
+        speed_boost_duration_timer -= 1
+
+    if player_invulnerable_timer > 0:
+        player_invulnerable_timer -= 1
+
+    if evil_larry_hit_flash > 0:
+        evil_larry_hit_flash -= 1
+
+    if weapon_cooldown > 0:
+        weapon_cooldown -= 1
+
+    if arm_throw_timer > 0:
+        arm_throw_timer -= 1
+
+    if meow_timer > 0:
+        meow_timer -= 1
+
+    if not is_moving and abs(walk_anim_phase) > 0.01:
+        walk_anim_phase *= 0.82
+    is_moving = False
+
+    # Speedboost Pickup Check
+    for item in speedboost_items:
+        item.update()
+        if item.active:
+            d = math.sqrt((player_pos[0]-item.x)**2 + (player_pos[2]-item.z)**2)
+            if d < 18.0:
+                item.active = False
+                speed_boost_duration_timer = 360
+
+    # Boss Hairball Power
+    global hairball_timer
+    if evil_larry_hp > 0:
+        hairball_timer -= 1
+        if hairball_timer <= 0:
+            hairball_timer = HAIRBALL_COOLDOWN
+            hairballs.append(Hairball(
+                evil_larry_pos[0], 65.0, evil_larry_pos[2],
+                player_pos[0], player_pos[2]
+            ))
+
+    for hb in list(hairballs):
+        hb.update()
+        if not hb.alive:
+            hairballs.remove(hb)
+            hairball_puddles.append(HairballPuddle(hb.x, hb.z))
+            explosions.append(Explosion(hb.x, 2.0, hb.z, max_r=22.0))
+
+    for pd in list(hairball_puddles):
+        pd.update()
+        if pd.life <= 0:
+            hairball_puddles.remove(pd)
+            continue
+        d_puddle = math.sqrt((player_pos[0] - pd.x)**2 + (player_pos[2] - pd.z)**2)
+        if d_puddle < pd.radius and player_invulnerable_timer <= 0 and not cheat_mode:
+            player_hits_left -= 1
+            player_invulnerable_timer = 50
+            if player_hits_left <= 0:
+                is_game_over = True
+
+    # Boss Pounce Power
+    global pounce_timer, pounce_state, pounce_sub_timer, pounce_target, pounce_start
+    global pounce_shockwave_r, pounce_shockwave_life
+
+    if pounce_shockwave_life > 0:
+        pounce_shockwave_life -= 1
+        pounce_shockwave_r += 2.4
+
+    if evil_larry_hp > 0 and evil_larry_shield_broken:
+        if pounce_state == 'IDLE':
+            pounce_timer -= 1
+            if pounce_timer <= 0:
+                pounce_timer = POUNCE_COOLDOWN
+                pounce_state = 'WINDUP'
+                pounce_sub_timer = 36
+                pounce_target = [player_pos[0], player_pos[2]]
+                pounce_start = [evil_larry_pos[0], evil_larry_pos[2]]
+
+        elif pounce_state == 'WINDUP':
+            pounce_sub_timer -= 1
+            if pounce_sub_timer <= 0:
+                pounce_state = 'AIR'
+                pounce_sub_timer = 65
+
+        elif pounce_state == 'AIR':
+            pounce_sub_timer -= 1
+            prog = 1.0 - (pounce_sub_timer / 65.0)
+            evil_larry_pos[0] = pounce_start[0] + (pounce_target[0] - pounce_start[0]) * prog
+            evil_larry_pos[2] = pounce_start[1] + (pounce_target[1] - pounce_start[1]) * prog
+            evil_larry_pos[1] = math.sin(prog * math.pi) * 120.0
+
+            if pounce_sub_timer <= 0:
+                evil_larry_pos[0] = pounce_target[0]
+                evil_larry_pos[2] = pounce_target[1]
+                evil_larry_pos[1] = 0.0
+                pounce_state = 'IDLE'
+                pounce_shockwave_r = 12.0
+                pounce_shockwave_life = 25
+                explosions.append(Explosion(pounce_target[0], 5.0, pounce_target[1], max_r=38.0))
+
+                d_impact = math.sqrt((player_pos[0] - pounce_target[0])**2 + (player_pos[2] - pounce_target[1])**2)
+                if d_impact < 48.0 and player_pos[1] < 12.0 and player_invulnerable_timer <= 0 and not cheat_mode:
+                    player_hits_left -= 1
+                    player_invulnerable_timer = 70
+                    if player_hits_left <= 0:
+                        is_game_over = True
+
+    # Boss Spherical Projectiles
+    global boss_spherical_timer
+    if evil_larry_hp > 0 and pounce_state == 'IDLE':
+        boss_spherical_timer -= 1
+        if boss_spherical_timer <= 0:
+            boss_spherical_timer = random.randint(4 * 60, 5 * 60)
+            boss_projectiles.append(BossProjectile(
+                evil_larry_pos[0], evil_larry_pos[1] + 45.0, evil_larry_pos[2],
+                player_pos[0], player_pos[1] + 16.0, player_pos[2]
+            ))
+
+    for bp in list(boss_projectiles):
+        bp.update()
+        if not bp.alive:
+            boss_projectiles.remove(bp)
+            continue
+        d_p = math.sqrt((player_pos[0] - bp.x)**2 + (player_pos[2] - bp.z)**2)
+        if d_p < (16.0 + bp.radius) and abs(player_pos[1] + 16.0 - bp.y) < 22.0:
+            bp.alive = False
+            boss_projectiles.remove(bp)
+            explosions.append(Explosion(bp.x, bp.y, bp.z, max_r=16.0))
+            if player_invulnerable_timer <= 0 and not cheat_mode:
+                player_hits_left -= 1
+                player_invulnerable_timer = 55
+                if player_hits_left <= 0:
+                    is_game_over = True
+
+    # Small Larry Spawn & AI Logic
+    if not evil_larry_shield_broken:
+        while len([sl for sl in small_larrys if sl.alive]) < MAX_ACTIVE_SMALL_LARRY and small_larrys_spawned_count < TOTAL_SMALL_LARRY_ALLOWED:
+            spawn_one_small_larry()
+
+    for sl in list(small_larrys):
+        if not sl.alive:
+            continue
+
+        sl.update(player_pos[0], player_pos[2], evil_larry_pos[0], evil_larry_pos[2])
+
+        # If Charmed: check impact with Big Larry's Shield!
+        if sl.charmed:
+            d_to_boss = math.sqrt((sl.x - evil_larry_pos[0])**2 + (sl.z - evil_larry_pos[2])**2)
+            if d_to_boss < 38.0 and evil_larry_hp > 0:
+                sl.alive = False
+                evil_larry_hit_flash = 12
+                explosions.append(Explosion(evil_larry_pos[0], 25.0, evil_larry_pos[2], max_r=28.0, is_blue=True))
+
+                if evil_larry_shield > 0:
+                    evil_larry_shield = max(0.0, evil_larry_shield - 60.0)
+                    print(f">> Charmed Small Larry destroyed section of Big Larry's Shield! Shield remaining: {evil_larry_shield}")
+                    if evil_larry_shield <= 0:
+                        evil_larry_shield_broken = True
+                        small_pillars_destroyed = True
+                        meow_timer = 120
+                        # All remaining Small Larries disappear when shield breaks!
+                        for rem_sl in small_larrys:
+                            if rem_sl.alive:
+                                rem_sl.alive = False
+                                explosions.append(Explosion(rem_sl.x, 10.0, rem_sl.z, max_r=20.0))
+                        small_larrys.clear()
+                        for k in range(INNER_COUNT):
+                            ang = 2*math.pi * k / INNER_COUNT
+                            px = INNER_RING_R * math.cos(ang)
+                            pz = INNER_RING_R * math.sin(ang)
+                            explosions.append(Explosion(px, 15.0, pz, max_r=18.0))
+        else:
+            if player_invulnerable_timer <= 0:
+                d = math.sqrt((player_pos[0]-sl.x)**2 + (player_pos[2]-sl.z)**2)
+                if d < 14.0:
+                    if not cheat_mode:
+                        player_hits_left -= 1
+                        player_invulnerable_timer = 60
+                        if player_hits_left <= 0:
+                            is_game_over = True
+
+    # If shield is broken, ensure all remaining Small Larries are cleared
+    if evil_larry_shield_broken and len(small_larrys) > 0:
+        for sl in small_larrys:
+            if sl.alive:
+                sl.alive = False
+                explosions.append(Explosion(sl.x, 10.0, sl.z, max_r=20.0))
+        small_larrys.clear()
+
+    # Evil Larry Boss AI
+    if evil_larry_hp > 0:
+        dx = player_pos[0] - evil_larry_pos[0]
+        dz = player_pos[2] - evil_larry_pos[2]
+        dist_to_player = math.sqrt(dx*dx + dz*dz)
+        if dist_to_player > 0.001:
+            evil_larry_yaw = math.degrees(math.atan2(dx, dz))
+
+        if evil_larry_shield_broken and dist_to_player > 20.0 and pounce_state == 'IDLE':
+            nx = evil_larry_pos[0] + (dx / dist_to_player) * evil_larry_speed
+            nz = evil_larry_pos[2] + (dz / dist_to_player) * evil_larry_speed
+            evil_larry_pos[0], evil_larry_pos[2] = resolve_pillar_collisions(nx, nz)
+
+        if dist_to_player < 30.0 and player_invulnerable_timer <= 0:
+            if not cheat_mode:
+                player_hits_left -= 1
+                player_invulnerable_timer = 70
+                if player_hits_left <= 0:
+                    is_game_over = True
+
+    # Bombs Update & Collisions
+    for b in list(bombs):
+        b.update()
+        if not b.alive:
+            bombs.remove(b)
+            continue
+
+        exploded = False
+        if b.y <= 0.0:
+            exploded = True
+            explosions.append(Explosion(b.x, 2.0, b.z, max_r=16.0))
+
+        if not exploded:
+            for k in range(OUTER_COUNT):
+                ang = 2 * math.pi * k / OUTER_COUNT
+                px = OUTER_RING_R * math.cos(ang)
+                pz = OUTER_RING_R * math.sin(ang)
+                d = math.sqrt((b.x - px)**2 + (b.z - pz)**2)
+                if d < (OUTER_BASE_R + 6.0) and b.y < OUTER_HEIGHT:
+                    exploded = True
+                    explosions.append(Explosion(b.x, b.y, b.z, max_r=16.0))
+                    break
+
+        if not exploded and not small_pillars_destroyed:
+            for k in range(INNER_COUNT):
+                ang = 2 * math.pi * k / INNER_COUNT
+                px = INNER_RING_R * math.cos(ang)
+                pz = INNER_RING_R * math.sin(ang)
+                d = math.sqrt((b.x - px)**2 + (b.z - pz)**2)
+                if d < (INNER_BASE_R + 6.0) and b.y < INNER_HEIGHT:
+                    exploded = True
+                    explosions.append(Explosion(b.x, b.y, b.z, max_r=16.0))
+                    break
+
+        if not exploded:
+            d_boss = math.sqrt((b.x - evil_larry_pos[0])**2 + (b.z - evil_larry_pos[2])**2)
+            if d_boss < 42.0 and b.y < 85.0 and evil_larry_hp > 0:
+                exploded = True
+                evil_larry_hit_flash = 8
+                explosions.append(Explosion(b.x, b.y, b.z, max_r=22.0))
+
+                if evil_larry_shield > 0:
+                    evil_larry_shield = max(0.0, evil_larry_shield - BOMB_DAMAGE)
+                    if evil_larry_shield <= 0:
+                        evil_larry_shield_broken = True
+                        small_pillars_destroyed = True
+                        meow_timer = 120
+                        # All remaining Small Larries disappear when shield breaks!
+                        for rem_sl in small_larrys:
+                            if rem_sl.alive:
+                                rem_sl.alive = False
+                                explosions.append(Explosion(rem_sl.x, 10.0, rem_sl.z, max_r=20.0))
+                        small_larrys.clear()
+                        for k in range(INNER_COUNT):
+                            ang = 2*math.pi * k / INNER_COUNT
+                            px = INNER_RING_R * math.cos(ang)
+                            pz = INNER_RING_R * math.sin(ang)
+                            explosions.append(Explosion(px, 15.0, pz, max_r=18.0))
+                else:
+                    evil_larry_hp = max(0.0, evil_larry_hp - BOMB_DAMAGE)
+                    if evil_larry_hp <= 0:
+                        is_level_cleared = True
+                        for _ in range(8):
+                            rx = evil_larry_pos[0] + random.uniform(-30, 30)
+                            ry = random.uniform(10, 60)
+                            rz = evil_larry_pos[2] + random.uniform(-30, 30)
+                            explosions.append(Explosion(rx, ry, rz, max_r=30.0))
+
+        if not exploded:
+            for sl in small_larrys:
+                if not sl.alive:
+                    continue
+                d_sl = math.sqrt((b.x - sl.x)**2 + (b.z - sl.z)**2)
+                if d_sl < 16.0 and b.y < 30.0:
+                    exploded = True
+                    sl.hp -= 1
+                    sl.hit_flash = 14
+                    explosions.append(Explosion(b.x, b.y, b.z, max_r=16.0))
+                    if sl.hp <= 0:
+                        sl.alive = False
+                        score += 1
+                        explosions.append(Explosion(sl.x, 10.0, sl.z, max_r=24.0))
+                        if not evil_larry_shield_broken and small_larrys_spawned_count < TOTAL_SMALL_LARRY_ALLOWED:
+                            spawn_one_small_larry()
+                    break
+
+        if exploded and b in bombs:
+            bombs.remove(b)
+
+    # Catnips Update & Charming Collisions
+    for cn in list(catnips):
+        cn.update()
+        if not cn.alive:
+            catnips.remove(cn)
+            continue
+
+        hit_event = False
+        if cn.y <= 0.0:
+            hit_event = True
+            explosions.append(Explosion(cn.x, 2.0, cn.z, max_r=18.0, is_blue=True))
+
+        if not hit_event:
+            for sl in small_larrys:
+                if not sl.alive or sl.charmed:
+                    continue
+                d_sl = math.sqrt((cn.x - sl.x)**2 + (cn.z - sl.z)**2)
+                if d_sl < 24.0 and cn.y < 35.0:
+                    hit_event = True
+                    sl.charmed = True
+                    explosions.append(Explosion(sl.x, 10.0, sl.z, max_r=22.0, is_blue=True))
+                    print(">> Small Larry CHARMED by Catnip! Running towards Big Larry to destroy shield!")
+                    break
+
+        if hit_event and cn in catnips:
+            catnips.remove(cn)
+
+    # Explosions Update
+    for exp in list(explosions):
+        exp.update()
+        if exp.life <= 0:
+            explosions.remove(exp)
+
+    glutPostRedisplay()
+
+# =============================================================================
+#  CAMERA & DISPLAY PIPELINE
+# =============================================================================
+def setup_camera():
+    glViewport(0, 0, WIN_W, WIN_H)
+    glMatrixMode(GL_PROJECTION)
+    glLoadIdentity()
+    gluPerspective(55.0, WIN_W / float(WIN_H), 1.0, 3500.0)
+    glMatrixMode(GL_MODELVIEW)
+    glLoadIdentity()
+
+    rad = math.radians(player_yaw)
+    rad_pitch = math.radians(player_pitch)
+
+    if first_person:
+        eye_x = player_pos[0]
+        eye_y = player_pos[1] + 12.0
+        eye_z = player_pos[2]
+        center_x = eye_x + math.sin(rad) * math.cos(rad_pitch) * 100.0
+        center_y = eye_y + math.sin(rad_pitch) * 100.0
+        center_z = eye_z + math.cos(rad) * math.cos(rad_pitch) * 100.0
+        gluLookAt(eye_x, eye_y, eye_z, center_x, center_y, center_z, 0, 1, 0)
+    else:
+        eye_x = player_pos[0] - math.sin(rad) * cam_dist
+        eye_y = player_pos[1] + cam_height
+        eye_z = player_pos[2] - math.cos(rad) * cam_dist
+        center_x = eye_x + math.sin(rad) * math.cos(rad_pitch) * 100.0
+        center_y = eye_y + math.sin(rad_pitch) * 100.0
+        center_z = eye_z + math.cos(rad) * math.cos(rad_pitch) * 100.0
+        gluLookAt(eye_x, eye_y, eye_z, center_x, center_y, center_z, 0, 1, 0)
+
+def display():
+    global WIN_W, WIN_H
+
+    cur_w = glutGet(GLUT_WINDOW_WIDTH)
+    cur_h = glutGet(GLUT_WINDOW_HEIGHT)
+    if cur_w > 0 and cur_h > 0:
+        WIN_W, WIN_H = cur_w, cur_h
+
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glLoadIdentity()
+    setup_camera()
+
+    # 1. Background Arena Floor & Ceilings
+    draw_floor_occluder()
+    draw_floor()
+    draw_wall_rim_accent()
+    draw_ceiling_rim()
+
+    rad = math.radians(player_yaw)
+    rad_pitch = math.radians(player_pitch)
+    if first_person:
+        cam_x = player_pos[0]
+        cam_y = player_pos[1] + 12.0
+        cam_z = player_pos[2]
+    else:
+        cam_x = player_pos[0] - math.sin(rad) * cam_dist
+        cam_y = player_pos[1] + cam_height
+        cam_z = player_pos[2] - math.cos(rad) * cam_dist
+
+    # 2. Collect all 3D scene entities for Back-to-Front Depth Sorting
+    render_list = []
+
+    # Wall segments
+    if _wall_cache is None:
+        _build_wall()
+    for rep, faces in _wall_cache:
+        def _draw_seg(faces=faces):
+            glBegin(GL_QUADS)
+            for col, q in faces:
+                glColor3f(*col)
+                for v in q:
+                    glVertex3f(*v)
+            glEnd()
+        render_list.append((rep[0], rep[1], rep[2], _draw_seg))
+
+    # Outer Large Pillars
+    for k in range(OUTER_COUNT):
+        ang = 2 * math.pi * k / OUTER_COUNT
+        px = OUTER_RING_R * math.cos(ang)
+        pz = OUTER_RING_R * math.sin(ang)
+        def _draw_lp(px=px, pz=pz):
+            glPushMatrix()
+            glTranslatef(px, 0, pz)
+            glRotatef(-90, 1, 0, 0)
+            draw_large_pillar()
+            glPopMatrix()
+        render_list.append((px, OUTER_HEIGHT * 0.5, pz, _draw_lp))
+
+    # Inner Small Pillars
+    if not small_pillars_destroyed:
+        for k in range(INNER_COUNT):
+            ang = 2 * math.pi * k / INNER_COUNT
+            px = INNER_RING_R * math.cos(ang)
+            pz = INNER_RING_R * math.sin(ang)
+            def _draw_sp(px=px, pz=pz):
+                glPushMatrix()
+                glTranslatef(px, 0, pz)
+                glRotatef(-90, 1, 0, 0)
+                draw_small_pillar()
+                glPopMatrix()
+            render_list.append((px, INNER_HEIGHT * 0.5, pz, _draw_sp))
+
+    # Speedboost items
+    for item in speedboost_items:
+        if item.active:
+            def _draw_sb(item=item):
+                glPushMatrix()
+                glTranslatef(item.x, item.y, item.z)
+                glRotatef(item.rot, 0, 1, 0)
+                glRotatef(30, 1, 0, 0)
+                glColor3f(0.1, 0.95, 1.0)
+                glutSolidCube(14)
+                glPopMatrix()
+            render_list.append((item.x, item.y, item.z, _draw_sb))
+
+    # Evil Larry Boss
+    if evil_larry_hp > 0:
+        render_list.append((evil_larry_pos[0], evil_larry_pos[1] + 35.0, evil_larry_pos[2], draw_evil_larry_boss))
+
+    # Player Character
+    if not first_person:
+        render_list.append((player_pos[0], player_pos[1] + 16.0, player_pos[2], lambda: draw_tung_tung_sahur(cam_x, cam_z)))
+
+    # Small Larry Minions
+    for sl in small_larrys:
+        if sl.alive:
+            def _draw_sl(sl=sl):
+                draw_single_small_larry(sl)
+            render_list.append((sl.x, sl.y + 10.0, sl.z, _draw_sl))
+
+    # Bombs
+    for b in bombs:
+        if b.alive:
+            def _draw_bomb(b=b):
+                glPushMatrix()
+                glTranslatef(b.x, b.y, b.z)
+                glRotatef(b.rot, 1, 1, 0)
+                glColor3f(0.12, 0.12, 0.12)
+                gluSphere(Q(), 4.0, 10, 10)
+                glTranslatef(0.0, 4.0, 0.0)
+                glColor3f(1.0, 0.55, 0.0)
+                gluSphere(Q(), 1.4, 6, 6)
+                glPopMatrix()
+            render_list.append((b.x, b.y, b.z, _draw_bomb))
+
+    # Catnips
+    for cn in catnips:
+        if cn.alive:
+            def _draw_cn(cn=cn):
+                glPushMatrix()
+                glTranslatef(cn.x, cn.y, cn.z)
+                glRotatef(cn.rot, 1, 1, 0)
+                glColor3f(0.0, 0.70, 1.0)
+                glutSolidCube(5.0)
+                glColor3f(0.3, 0.95, 1.0)
+                gluSphere(Q(), 3.2, 8, 8)
+                glPopMatrix()
+            render_list.append((cn.x, cn.y, cn.z, _draw_cn))
+
+    # Explosions
+    for exp in explosions:
+        if exp.life > 0:
+            def _draw_exp(exp=exp):
+                glPushMatrix()
+                glTranslatef(exp.x, exp.y, exp.z)
+                alpha = exp.life / float(exp.max_life)
+                if exp.is_blue:
+                    glColor3f(0.1 * alpha, 0.85 * alpha, 1.0 * alpha)
+                else:
+                    glColor3f(1.0 * alpha, 0.45 * alpha, 0.05 * alpha)
+                gluSphere(Q(), exp.radius, 10, 10)
+                glPointSize(4)
+                glBegin(GL_POINTS)
+                for p in exp.particles:
+                    if exp.is_blue:
+                        glColor3f(0.4 * alpha, 0.95 * alpha, 1.0 * alpha)
+                    else:
+                        glColor3f(1.0, 0.85 * alpha, 0.2 * alpha)
+                    glVertex3f(p[0], p[1], p[2])
+                glEnd()
+                glPopMatrix()
+            render_list.append((exp.x, exp.y, exp.z, _draw_exp))
+
+    # Hairballs
+    for hb in hairballs:
+        if hb.alive:
+            def _draw_hb(hb=hb):
+                glPushMatrix()
+                glTranslatef(hb.x, hb.y, hb.z)
+                glRotatef(hb.rot, 1, 1, 0)
+                glColor3f(0.20, 0.85, 0.10)
+                gluSphere(Q(), 9.5, 12, 12)
+                glColor3f(0.35, 0.95, 0.15)
+                gluSphere(Q(), 7.0, 8, 8)
+                glPointSize(6)
+                glBegin(GL_POINTS)
+                for a in range(0, 360, 40):
+                    rad_hb = math.radians(a + hb.rot)
+                    glColor3f(0.40, 1.0, 0.20)
+                    glVertex3f(math.cos(rad_hb) * 11.5, math.sin(rad_hb) * 11.5, 0)
+                    glVertex3f(0, math.cos(rad_hb) * 11.5, math.sin(rad_hb) * 11.5)
+                glEnd()
+                glPopMatrix()
+            render_list.append((hb.x, hb.y, hb.z, _draw_hb))
+
+    # Hairball Puddles
+    for pd in hairball_puddles:
+        if pd.life > 0:
+            def _draw_pd(pd=pd):
+                alpha = pd.life / float(pd.max_life)
+                glBegin(GL_TRIANGLES)
+                segs = 28
+                for i in range(segs):
+                    a1 = 2 * math.pi * i / segs
+                    a2 = 2 * math.pi * (i + 1) / segs
+                    glColor3f(0.20 * alpha, 0.75 * alpha, 0.12 * alpha)
+                    glVertex3f(pd.x, 0.35, pd.z)
+                    glColor3f(0.10 * alpha, 0.40 * alpha, 0.06 * alpha)
+                    glVertex3f(pd.x + math.cos(a1) * pd.radius, 0.35, pd.z + math.sin(a1) * pd.radius)
+                    glVertex3f(pd.x + math.cos(a2) * pd.radius, 0.35, pd.z + math.sin(a2) * pd.radius)
+                glEnd()
+
+                glPointSize(5)
+                glBegin(GL_POINTS)
+                glColor3f(0.45 * alpha, 1.0 * alpha, 0.25 * alpha)
+                for b in pd.bubbles:
+                    glVertex3f(pd.x + b[0], b[1], pd.z + b[2])
+                glEnd()
+            render_list.append((pd.x, 0.35, pd.z, _draw_pd))
+
+    # Pounce Effects
+    if pounce_state in ['WINDUP', 'AIR'] or pounce_shockwave_life > 0:
+        render_list.append((pounce_target[0], 0.6, pounce_target[1], draw_pounce_effects))
+
+    # Boss Spherical Projectiles
+    for bp in boss_projectiles:
+        if bp.alive:
+            def _draw_bp(bp=bp):
+                glPushMatrix()
+                glTranslatef(bp.x, bp.y, bp.z)
+                glRotatef(bp.rot, 1, 0, 1)
+                glColor3f(0.95, 0.20, 0.95)
+                gluSphere(Q(), bp.radius, 12, 12)
+                glColor3f(1.0, 0.85, 1.0)
+                gluSphere(Q(), bp.radius * 0.55, 8, 8)
+                glPointSize(4)
+                glBegin(GL_POINTS)
+                for a in range(0, 360, 60):
+                    rad_bp = math.radians(a + bp.rot)
+                    glColor3f(1.0, 0.5, 1.0)
+                    glVertex3f(math.cos(rad_bp) * (bp.radius + 3.0), math.sin(rad_bp) * (bp.radius + 3.0), 0)
+                glEnd()
+                glPopMatrix()
+            render_list.append((bp.x, bp.y, bp.z, _draw_bp))
+
+    # 3. Sort entities Back-to-Front
+    def _dist_sq(entity):
+        ex, ey, ez, fn = entity
+        return (ex - cam_x)**2 + (ey - cam_y)**2 + (ez - cam_z)**2
+
+    render_list.sort(key=_dist_sq, reverse=True)
+
+    for ex, ey, ez, fn in render_list:
+        fn()
+
+    # 4. 2D HUD & Crosshair
+    draw_crosshair()
+    draw_hud()
+
+    glutSwapBuffers()
+
+# =============================================================================
+#  INPUT EVENT LISTENERS
+# =============================================================================
+def keyboard_listener(key, x, y):
+    global player_pos, crouching, is_jumping, y_velocity
+    global first_person, is_paused, is_game_over, cheat_mode, active_weapon
+    global walk_anim_phase, is_moving, player_yaw, player_pitch
+
+    try:
+        raw_ch = key.decode('utf-8')
+    except:
+        raw_ch = str(key)
+    ch = raw_ch.lower()
+
+    rad = math.radians(player_yaw)
+
+    is_sprint = raw_ch in ['W', 'A', 'S', 'D']
+
+    if speed_boost_duration_timer > 0:
+        cur_speed = BASE_PLAYER_SPEED * 2.2
+    elif is_sprint:
+        cur_speed = BASE_PLAYER_SPEED * 1.70
+    else:
+        cur_speed = BASE_PLAYER_SPEED
+
+    if not is_paused and not is_game_over and not is_level_cleared:
+        nx, nz = player_pos[0], player_pos[2]
+        moved = False
+
+        if ch == 'w':
+            nx += math.sin(rad) * cur_speed
+            nz += math.cos(rad) * cur_speed
+            moved = True
+        elif ch == 's':
+            nx -= math.sin(rad) * cur_speed
+            nz -= math.cos(rad) * cur_speed
+            moved = True
+        elif ch == 'a':
+            nx += math.sin(rad + math.pi/2.0) * cur_speed
+            nz += math.cos(rad + math.pi/2.0) * cur_speed
+            moved = True
+        elif ch == 'd':
+            nx += math.sin(rad - math.pi/2.0) * cur_speed
+            nz += math.cos(rad - math.pi/2.0) * cur_speed
+            moved = True
+        elif ch == 'c':
+            cheat_mode = not cheat_mode
+            print('>> Cheat Mode: ON' if cheat_mode else '>> Cheat Mode: OFF')
+        elif ch == ' ' or key == b' ':
+            if not is_jumping:
+                is_jumping = True
+                y_velocity = jump_strength
+        elif ch == 'f':
+            active_weapon = "catnip" if active_weapon == "gun" else "gun"
+            print(f">> Active Weapon Toggled to: {active_weapon.upper()}")
+        elif ch == 'b':
+            fire_weapon()
+        elif ch == 'v':
+            first_person = not first_person
+        elif ch == 'j':
+            player_yaw -= 5.0
+        elif ch == 'l':
+            player_yaw += 5.0
+        elif ch == 'i':
+            player_pitch = min(65.0, player_pitch + 5.0)
+        elif ch == 'k':
+            player_pitch = max(-65.0, player_pitch - 5.0)
+
+        if moved:
+            player_pos[0], player_pos[2] = resolve_pillar_collisions(nx, nz)
+            walk_anim_phase += 0.28 * (cur_speed / BASE_PLAYER_SPEED)
+            is_moving = True
+
+    # Pause Toggle (P Key)
+    if ch == 'p':
+        is_paused = not is_paused
+    elif ch == 'r':
+        reset_level_3()
+    elif key == b'\x1b' or ch == 'q':
+        sys.exit(0)
+
+    limit = ARENA_RADIUS - 30.0
+    r = math.sqrt(player_pos[0]**2 + player_pos[2]**2)
+    if r > limit:
+        player_pos[0] = (player_pos[0] / r) * limit
+        player_pos[2] = (player_pos[2] / r) * limit
+
+    glutPostRedisplay()
+
+def special_key_listener(key, x, y):
+    pass
+
+def mouse_listener(button, state, x, y):
+    if is_paused or is_game_over or is_level_cleared:
+        return
+    try:
+        if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN:
+            fire_weapon()
+        elif button == GLUT_RIGHT_BUTTON and state == GLUT_DOWN:
+            global first_person
+            first_person = not first_person
+            glutPostRedisplay()
+    except Exception as e:
+        print(f"Mouse event error: {e}")
+
+# =============================================================================
+#  GAME RESET & ENTRY POINT
+# =============================================================================
+def reset_level_3():
+    global player_pos, player_yaw, player_pitch, player_hits_left
+    global evil_larry_pos, evil_larry_yaw, evil_larry_shield, evil_larry_hp
+    global evil_larry_shield_broken, evil_larry_hit_flash, small_pillars_destroyed
+    global small_larrys_spawned_count, small_larrys, bombs, catnips, explosions
+    global speed_boost_duration_timer, is_game_over, is_level_cleared, is_paused, score
+    global hairball_timer, hairballs, hairball_puddles
+    global pounce_timer, pounce_state, pounce_sub_timer, pounce_shockwave_life
+    global boss_spherical_timer, boss_projectiles, meow_timer, active_weapon
+
+    player_pos   = [0.0, 0.0, -320.0]
+    player_yaw   = 0.0
+    player_pitch = 0.0
+    player_hits_left = MAX_PLAYER_HITS
+    active_weapon = "gun"
+
+    evil_larry_pos           = [0.0, 0.0, 0.0]
+    evil_larry_yaw           = 180.0
+    evil_larry_shield        = EVIL_LARRY_MAX_SHIELD
+    evil_larry_hp            = EVIL_LARRY_MAX_HP
+    evil_larry_shield_broken = False
+    evil_larry_hit_flash     = 0
+    small_pillars_destroyed  = False
+    meow_timer               = 0
+
+    small_larrys_spawned_count = 0
+    small_larrys.clear()
+    bombs.clear()
+    catnips.clear()
+    explosions.clear()
+
+    hairball_timer = HAIRBALL_COOLDOWN
+    hairballs.clear()
+    hairball_puddles.clear()
+
+    pounce_timer = POUNCE_COOLDOWN
+    pounce_state = 'IDLE'
+    pounce_sub_timer = 0
+    pounce_shockwave_life = 0
+
+    boss_spherical_timer = random.randint(4 * 60, 5 * 60)
+    boss_projectiles.clear()
+
+    speed_boost_duration_timer = 0
+    is_game_over     = False
+    is_level_cleared = False
+    is_paused        = False
+    score            = 0
+
+    for item in speedboost_items:
+        item.active = True
+        item.respawn_timer = 0
+
+    for _ in range(MAX_ACTIVE_SMALL_LARRY):
+        spawn_one_small_larry()
+
+def main():
+    glutInit(sys.argv)
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
+    glutInitWindowSize(WIN_W, WIN_H)
+    glutInitWindowPosition(60, 40)
+    glutCreateWindow(b"9 Lives - Level 3: Boss Fight (Evil Larry)")
+
+    glutDisplayFunc(display)
+    glutIdleFunc(idle)
+    glutKeyboardFunc(keyboard_listener)
+    glutSpecialFunc(special_key_listener)
+    glutMouseFunc(mouse_listener)
+
+    reset_level_3()
+    glutMainLoop()
+
+if __name__ == "__main__":
+    main()
