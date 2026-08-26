@@ -366,10 +366,6 @@ def start_transition_1_to_2():
     current_state = STATE_TRANSITION_1_TO_2
     transition_timer = 0
     init_transition_particles(90)
-    try:
-        glutSetWindowTitle(b"9 Lives - Dimensional Warp: Entering Level 2 (Zombie Cat Arena)")
-    except:
-        pass
 
 def enter_level_2():
     global current_state
@@ -378,10 +374,6 @@ def enter_level_2():
     if 'reset_arena' in lvl2:
         lvl2['reset_arena']()
     lvl2['mouse_initialized'] = False
-    try:
-        glutSetWindowTitle(b"9 Lives - Level 2: Zombie Cat Arena ('tung tung tung sahur')")
-    except:
-        pass
 
 def start_transition_2_to_3():
     global current_state, transition_timer
@@ -392,10 +384,6 @@ def start_transition_2_to_3():
     current_state = STATE_TRANSITION_2_TO_3
     transition_timer = 0
     init_transition_particles(90)
-    try:
-        glutSetWindowTitle(b"9 Lives - Dimensional Warp: Entering Level 3 (Boss Fight - Evil Larry)")
-    except:
-        pass
 
 def enter_level_3():
     global current_state
@@ -404,10 +392,6 @@ def enter_level_3():
     if 'reset_level_3' in lvl3:
         lvl3['reset_level_3']()
     lvl3['mouse_initialized'] = False
-    try:
-        glutSetWindowTitle(b"9 Lives - Level 3: Boss Fight (Evil Larry)")
-    except:
-        pass
 
 # =============================================================================
 # MASTER GLUT CALLBACKS DISPATCHER
