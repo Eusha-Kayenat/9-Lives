@@ -977,14 +977,16 @@ def draw_rect_border_2d(x1, y1, x2, y2, color, line_width=2.0):
 
 def update_window_dimensions():
     """
-    Queries current GLUT window dimensions and updates global WINDOW_WIDTH / WINDOW_HEIGHT.
-    Ensures perfect centering when the game is maximized or full-screened.
+    WINDOW_WIDTH / WINDOW_HEIGHT stay fixed at the size the window was
+    created with (glutInitWindowSize). Neither glutGet() nor
+    glutReshapeFunc() are in the lab's allowed function list, so there is
+    no allowed way to detect a manual window resize -- the alternative is
+    to simply keep treating the window as the fixed size it started at
+    (1000 x 750), which is exactly what glViewport/gluPerspective already
+    use via these globals. This function is now a no-op; it's kept only so
+    existing call sites elsewhere don't need to change.
     """
-    global WINDOW_WIDTH, WINDOW_HEIGHT
-    cur_w = glutGet(GLUT_WINDOW_WIDTH)
-    cur_h = glutGet(GLUT_WINDOW_HEIGHT)
-    if cur_w > 0 and cur_h > 0:
-        WINDOW_WIDTH, WINDOW_HEIGHT = cur_w, cur_h
+    pass
 
 def reshape_listener(w, h):
     """
@@ -1094,8 +1096,12 @@ def draw_story_screen():
 
     # 5. Pulsing Bottom Prompt Button Bar
     prompt_str = "PRESS SPACE OR ENTER TO START"
-    # Measure exact GLUT pixel width for 100% precise horizontal centering
-    p_w = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(ch)) for ch in prompt_str)
+    # Measure approximate pixel width for horizontal centering, using the
+    # same per-character width estimate already used above for the story
+    # lines (len(text) * 9.2) -- glutBitmapWidth() is outside the lab's
+    # allowed function list, and this keeps the centering consistent with
+    # the rest of this screen instead of introducing a different method.
+    p_w = len(prompt_str) * 9.2
     p_start_x = (WINDOW_WIDTH - p_w) // 2
     prompt_y = py1 + 35
 
@@ -1767,7 +1773,13 @@ def main():
 
     # Register 100% Allowlisted Lab Callbacks Only
     glutDisplayFunc(display)
-    glutReshapeFunc(reshape_listener)
+    # glutReshapeFunc(reshape_listener) removed -- not in the lab's allowed
+    # function list, and there is no allowed alternative that reacts to a
+    # live resize event. Since glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+    # above already fixes the window's starting size, and nothing else in
+    # this file has an allowed way to change or query it afterward, the
+    # window simply keeps that same size for the whole session -- matching
+    # every one of the lab template files, none of which handle resizing.
     glutIdleFunc(idle)
     glutKeyboardFunc(keyboard_listener)
     glutSpecialFunc(special_key_listener)
