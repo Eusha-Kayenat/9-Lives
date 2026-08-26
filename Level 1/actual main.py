@@ -274,6 +274,9 @@ def draw_character(cam_x=0.0, cam_z=0.0):
     else:
         glScalef(scale_factor, scale_factor, scale_factor)
 
+    # Elevate model by +14 units so the soles of the shoes align precisely with the ground/rock top surface
+    glTranslatef(0, 0, 14.0)
+
     rad_yaw = math.radians(player_yaw)
     fwd_x = math.sin(rad_yaw)
     fwd_z = math.cos(rad_yaw)
@@ -542,15 +545,26 @@ def draw_pillars_and_archways():
         draw_box(1.6, 0.4, 1.6, color_top=COLOR_CYAN_GLOW, color_side=(0.0, 0.6, 0.8))
         glPopMatrix()
 
-def draw_hazard_zones():
-    """
-    Draws Section 2 (X: 34.4->45.6, Z: 65.6->114.4): Dark Obsidian & Lava Tile Corridor.
-    Designed with a dark atmospheric palette matching 'UPDATE 1.1: WITH LAVA TILES':
-    - Deep glowing molten lava channels beneath dark basalt crust tiles
-    - Stepping stones formed by raised dark obsidian block islands with magma-filled tile grooves
-    - Dark stone wall ledges with glowing lava seams along the corridor edges
-    """
+# -----------------------------------------------------------------------------
+# Section 2 Hazard Zones: Dark Obsidian & Lava Tile Corridor (Constants & Draw)
+# -----------------------------------------------------------------------------
+LAVA_TILE_ROCKS = [
+    # (rx, rz, sx, sz, tilt)
+    (40.0,  68.0,  3.6, 4.2,  0.0),   # R1 — entry (centre)
+    (38.8,  74.3,  3.6, 4.2,  6.0),   # R2 — left
+    (41.2,  80.6,  3.6, 4.2, -6.0),   # R3 — right
+    (38.8,  86.9,  3.6, 4.2,  5.0),   # R4 — left
+    (41.2,  93.2,  3.6, 4.2, -5.0),   # R5 — right
+    (38.8,  99.5,  3.6, 4.2,  6.0),   # R6 — left
+    (41.2, 105.8,  3.6, 4.2, -6.0),   # R7 — right
+    (40.0, 112.0,  3.6, 4.2,  0.0),   # R8 — exit (centre)
+]
 
+def draw_lava_base_and_tiles():
+    """
+    Renders the recessed lava pit body, molten surface glow, floor crust tiles,
+    lava spikes, and basalt side ledges (all foundational ground elements).
+    """
     CX   = 40.0        # corridor X centre
     CXHW = 5.6         # corridor X half-width (34.4 to 45.6)
     ZSTART = 65.6
@@ -558,22 +572,17 @@ def draw_hazard_zones():
     ZDEPTH = ZEND - ZSTART   # ~48.8 units
     ZCZ    = (ZSTART + ZEND) / 2.0  # centre Z
 
-    # -----------------------------------------------------------------
     # 1. DEEP RECESSED PIT & MOLTEN LAVA BASE
-    # -----------------------------------------------------------------
-    # Pitch dark abyss pit body
     glPushMatrix()
     glTranslatef(CX, -2.2, ZCZ)
     draw_box(CXHW * 2, 4.4, ZDEPTH, color_top=(0.02, 0.01, 0.02), color_side=(0.06, 0.02, 0.03))
     glPopMatrix()
 
-    # Deep fiery crimson base lava
     glPushMatrix()
     glTranslatef(CX, 0.0, ZCZ)
     draw_box(CXHW * 2, 0.06, ZDEPTH, color_top=(0.75, 0.04, 0.0), color_side=(0.50, 0.02, 0.0))
     glPopMatrix()
 
-    # Bright molten orange-yellow glow channels
     glPushMatrix()
     glTranslatef(CX, 0.07, ZCZ)
     draw_box(CXHW * 2 - 0.8, 0.05, ZDEPTH - 1.6,
@@ -586,149 +595,62 @@ def draw_hazard_zones():
              color_top=(1.0, 0.65, 0.0), color_side=(0.95, 0.35, 0.0))
     glPopMatrix()
 
-    # -----------------------------------------------------------------
     # 2. FLOOR LAVA TILES GRID (Scattered dark basalt crust tiles)
-    # -----------------------------------------------------------------
-    # Renders a grid of dark lava crust tiles with glowing magma gaps
     for z_tile in range(int(ZSTART) + 2, int(ZEND) - 2, 3):
         for x_off in [-3.8, -1.9, 0.0, 1.9, 3.8]:
             glPushMatrix()
             glTranslatef(CX + x_off, 0.15, float(z_tile))
-            # Dark volcanic crust tile top with fiery underside glow
             draw_box(1.5, 0.08, 2.2,
                      color_top=(0.14, 0.11, 0.12),
                      color_side=(0.75, 0.20, 0.0))
             glPopMatrix()
 
-    # -----------------------------------------------------------------
     # 2B. 3D VOLCANIC LAVA SPIKES
-    # -----------------------------------------------------------------
     def draw_lava_spike(x, y, z, base_w=0.35, height=1.5):
-        """
-        Renders a sharp 3D obsidian/magma spike rising from the lava.
-        """
         glPushMatrix()
         glTranslatef(x, y, z)
         c_base = (0.16, 0.12, 0.14)
         c_tip  = (1.00, 0.40, 0.00)
         glBegin(GL_TRIANGLES)
-        # Front face
         glColor3f(*c_base); glVertex3f(-base_w, 0.0,  base_w)
         glColor3f(*c_base); glVertex3f( base_w, 0.0,  base_w)
         glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
-        # Right face
         glColor3f(*c_base); glVertex3f( base_w, 0.0,  base_w)
         glColor3f(*c_base); glVertex3f( base_w, 0.0, -base_w)
         glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
-        # Back face
         glColor3f(*c_base); glVertex3f( base_w, 0.0, -base_w)
         glColor3f(*c_base); glVertex3f(-base_w, 0.0, -base_w)
         glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
-        # Left face
         glColor3f(*c_base); glVertex3f(-base_w, 0.0, -base_w)
         glColor3f(*c_base); glVertex3f(-base_w, 0.0,  base_w)
         glColor3f(*c_tip);  glVertex3f( 0.0, height,  0.0)
         glEnd()
         glPopMatrix()
 
-    # Clusters of sharp lava spikes sticking up throughout the lava pit
     for z_spk in range(int(ZSTART) + 3, int(ZEND) - 3, 4):
         draw_lava_spike(CX - 4.2, 0.1, float(z_spk),        0.40, 1.8)
         draw_lava_spike(CX - 2.5, 0.1, float(z_spk) + 1.5,  0.30, 1.4)
         draw_lava_spike(CX + 2.5, 0.1, float(z_spk) + 0.8,  0.32, 1.5)
         draw_lava_spike(CX + 4.2, 0.1, float(z_spk) + 2.2,  0.42, 1.9)
 
-    # -----------------------------------------------------------------
     # 3. BASALT SIDE WALL LEDGES WITH MAGMA SEAMS
-    # -----------------------------------------------------------------
     for z_side in range(int(ZSTART), int(ZEND), 6):
-        # Left wall basalt ledge block
         glPushMatrix()
         glTranslatef(CX - CXHW + 0.6, 0.5, float(z_side) + 3.0)
         draw_box(1.2, 1.2, 5.6, color_top=(0.16, 0.14, 0.16), color_side=(0.10, 0.08, 0.10))
         glPopMatrix()
-        # Left magma seam
         glPushMatrix()
         glTranslatef(CX - CXHW + 0.6, 0.1, float(z_side) + 3.0)
         draw_box(1.3, 0.1, 5.6, color_top=(1.0, 0.30, 0.0), color_side=(0.8, 0.15, 0.0))
         glPopMatrix()
-
-        # Right wall basalt ledge block
         glPushMatrix()
         glTranslatef(CX + CXHW - 0.6, 0.5, float(z_side) + 3.0)
         draw_box(1.2, 1.2, 5.6, color_top=(0.16, 0.14, 0.16), color_side=(0.10, 0.08, 0.10))
         glPopMatrix()
-        # Right magma seam
         glPushMatrix()
         glTranslatef(CX + CXHW - 0.6, 0.1, float(z_side) + 3.0)
         draw_box(1.3, 0.1, 5.6, color_top=(1.0, 0.30, 0.0), color_side=(0.8, 0.15, 0.0))
         glPopMatrix()
-
-    # -----------------------------------------------------------------
-    # 4. LAVA TILE STEPPING STONE ISLANDS (8 Rocks)
-    # Renders dark obsidian platforms with 3D lava-tile grid tops!
-    # -----------------------------------------------------------------
-    def draw_lava_tile_rock(rx, rz, sx, sz, tilt=0.0):
-        """
-        Draws a dark obsidian stepping stone island with magma-filled
-        tile grooves on top (matching the reference image).
-        """
-        # A. Dark Obsidian Base Structure
-        glPushMatrix()
-        glTranslatef(rx, 1.0, rz)
-        if tilt != 0.0:
-            glRotatef(tilt, 0, 1, 0)
-        draw_box(sx, 0.50, sz,
-                 color_top=(0.12, 0.10, 0.13),
-                 color_side=(0.07, 0.05, 0.08))
-        glPopMatrix()
-
-        # B. Magma Underglow Base Rim
-        glPushMatrix()
-        glTranslatef(rx, 0.76, rz)
-        if tilt != 0.0:
-            glRotatef(tilt, 0, 1, 0)
-        draw_box(sx + 0.25, 0.08, sz + 0.25,
-                 color_top=(1.0, 0.30, 0.0),
-                 color_side=(0.85, 0.15, 0.0))
-        glPopMatrix()
-
-        # C. Glowing Magma Sub-Layer on Rock Surface
-        glPushMatrix()
-        glTranslatef(rx, 1.26, rz)
-        if tilt != 0.0:
-            glRotatef(tilt, 0, 1, 0)
-        draw_box(sx - 0.1, 0.04, sz - 0.1,
-                 color_top=(1.0, 0.55, 0.0),
-                 color_side=(0.9, 0.30, 0.0))
-        glPopMatrix()
-
-        # D. 2x3 Grid of Dark Basalt Lava Tiles on top (Magma glows in the grooves!)
-        tile_w = (sx - 0.5) / 2.0
-        tile_d = (sz - 0.7) / 3.0
-
-        for col in [-1, 1]:
-            for row in [-1, 0, 1]:
-                tx = rx + col * (tile_w / 2.0 + 0.08)
-                tz = rz + row * (tile_d + 0.10)
-                glPushMatrix()
-                glTranslatef(tx, 1.30, tz)
-                if tilt != 0.0:
-                    glRotatef(tilt, 0, 1, 0)
-                draw_box(tile_w, 0.08, tile_d,
-                         color_top=(0.20, 0.17, 0.20),
-                         color_side=(0.10, 0.08, 0.11))
-                glPopMatrix()
-
-    # --- 8 Lava Tile Rock Islands ---
-    draw_lava_tile_rock(40.0,  68.0,  3.6, 4.2, tilt= 0.0)   # R1 — entry (centre)
-    draw_lava_tile_rock(38.8,  74.3,  3.6, 4.2, tilt= 6.0)   # R2 — left
-    draw_lava_tile_rock(41.2,  80.6,  3.6, 4.2, tilt=-6.0)   # R3 — right
-    draw_lava_tile_rock(38.8,  86.9,  3.6, 4.2, tilt= 5.0)   # R4 — left
-    draw_lava_tile_rock(41.2,  93.2,  3.6, 4.2, tilt=-5.0)   # R5 — right
-    draw_lava_tile_rock(38.8,  99.5,  3.6, 4.2, tilt= 6.0)   # R6 — left
-    draw_lava_tile_rock(41.2, 105.8,  3.6, 4.2, tilt=-6.0)   # R7 — right
-    draw_lava_tile_rock(40.0, 112.0,  3.6, 4.2, tilt= 0.0)   # R8 — exit (centre)
 
     # Warning stripes at corridor entry and exit
     for pz in [65.8, 114.2]:
@@ -736,6 +658,65 @@ def draw_hazard_zones():
         glTranslatef(CX, 0.04, pz)
         draw_box(CXHW * 2, 0.04, 0.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.6, 0.5, 0.0))
         glPopMatrix()
+
+def draw_lava_tile_rock(rx, rz, sx, sz, tilt=0.0):
+    """
+    Draws a single dark obsidian stepping stone island with magma-filled tile grooves on top.
+    """
+    # A. Dark Obsidian Base Structure
+    glPushMatrix()
+    glTranslatef(rx, 1.0, rz)
+    if tilt != 0.0:
+        glRotatef(tilt, 0, 1, 0)
+    draw_box(sx, 0.50, sz,
+             color_top=(0.12, 0.10, 0.13),
+             color_side=(0.07, 0.05, 0.08))
+    glPopMatrix()
+
+    # B. Magma Underglow Base Rim
+    glPushMatrix()
+    glTranslatef(rx, 0.76, rz)
+    if tilt != 0.0:
+        glRotatef(tilt, 0, 1, 0)
+    draw_box(sx + 0.25, 0.08, sz + 0.25,
+             color_top=(1.0, 0.30, 0.0),
+             color_side=(0.85, 0.15, 0.0))
+    glPopMatrix()
+
+    # C. Glowing Magma Sub-Layer on Rock Surface
+    glPushMatrix()
+    glTranslatef(rx, 1.26, rz)
+    if tilt != 0.0:
+        glRotatef(tilt, 0, 1, 0)
+    draw_box(sx - 0.1, 0.04, sz - 0.1,
+             color_top=(1.0, 0.55, 0.0),
+             color_side=(0.9, 0.30, 0.0))
+    glPopMatrix()
+
+    # D. 2x3 Grid of Dark Basalt Lava Tiles on top (Magma glows in the grooves!)
+    tile_w = (sx - 0.5) / 2.0
+    tile_d = (sz - 0.7) / 3.0
+
+    for col in [-1, 1]:
+        for row in [-1, 0, 1]:
+            tx = rx + col * (tile_w / 2.0 + 0.08)
+            tz = rz + row * (tile_d + 0.10)
+            glPushMatrix()
+            glTranslatef(tx, 1.30, tz)
+            if tilt != 0.0:
+                glRotatef(tilt, 0, 1, 0)
+            draw_box(tile_w, 0.08, tile_d,
+                     color_top=(0.20, 0.17, 0.20),
+                     color_side=(0.10, 0.08, 0.11))
+            glPopMatrix()
+
+def draw_hazard_zones():
+    """
+    Draws the complete Section 2 Lava Hazard zone.
+    """
+    draw_lava_base_and_tiles()
+    for rx, rz, sx, sz, tilt in LAVA_TILE_ROCKS:
+        draw_lava_tile_rock(rx, rz, sx, sz, tilt)
 
 # -----------------------------------------------------------------------------
 # Disappearing Platform Chamber Constants & Rendering
@@ -1132,8 +1113,9 @@ def display():
 
     setup_camera()
 
-    # 1. Render Base Ground / Floors (foundational occluders)
+    # 1. Render Base Ground / Floors & Lava Base (foundational occluders)
     draw_connected_floor_pathways()
+    draw_lava_base_and_tiles()
 
     # Camera eye position in world space for depth sorting
     rad = math.radians(player_yaw)
@@ -1152,14 +1134,23 @@ def display():
     # 2. Collect all 3D scene elements for Back-to-Front Depth Sorting
     render_list = []
 
-    # A. Wall segments
+    # Helper to calculate the point on a 3D bounding box farthest from the camera
+    def _box_farthest_point(cx, cy, cz, sx, sy, sz):
+        hx, hy, hz = sx / 2.0, sy / 2.0, sz / 2.0
+        fx = cx + hx if cam_x < cx else cx - hx
+        fy = cy - hy if cam_y > cy else cy + hy
+        fz = cz + hz if cam_z < cz else cz - hz
+        return (fx, fy, fz)
+
+    # A. Wall segments (sorted by farthest edge from camera)
     for cx, cy, cz, sx, sy, sz in MAZE_WALL_SEGMENTS:
+        fx, fy, fz = _box_farthest_point(cx, cy, cz, sx, sy, sz)
         def _draw_w(cx=cx, cy=cy, cz=cz, sx=sx, sy=sy, sz=sz):
             glPushMatrix()
             glTranslatef(cx, cy, cz)
             draw_box(sx, sy, sz, color_top=COLOR_WALL, color_side=COLOR_WALL_SIDE)
             glPopMatrix()
-        render_list.append((cx, cy, cz, _draw_w))
+        render_list.append((fx, fy, fz, _draw_w))
 
     # B. Ceiling light panels
     for lx, lz in LIGHT_COORDS:
@@ -1183,8 +1174,12 @@ def display():
             glPopMatrix()
         render_list.append((px, 3.5, pz, _draw_p))
 
-    # D. Hazard Lava Pit & Stepping Rocks (Corridor 2, Z: 65.6 -> 114.4)
-    render_list.append((40.0, -1.0, 90.0, draw_hazard_zones))
+    # D. Lava Stepping Stone Islands (sorted by farthest edge so platforms never occlude character on edges)
+    for rx, rz, sx, sz, tilt in LAVA_TILE_ROCKS:
+        fx, fy, fz = _box_farthest_point(rx, 1.0, rz, sx, 0.7, sz)
+        def _draw_rock(rx=rx, rz=rz, sx=sx, sz=sz, tilt=tilt):
+            draw_lava_tile_rock(rx, rz, sx, sz, tilt)
+        render_list.append((fx, fy, fz, _draw_rock))
 
     # E. Disappearing Floor Platforms
     for px, pz, color_idx in DISAPPEARING_TILE_COORDS:
@@ -1269,7 +1264,7 @@ def display():
                     draw_character(cam_x, cam_z)
             else:
                 draw_character(cam_x, cam_z)
-        render_list.append((player_pos[0], player_pos[1] + 1.0, player_pos[2], _draw_player))
+        render_list.append((player_pos[0], player_pos[1] + 0.8, player_pos[2], _draw_player))
 
     # 3. Sort all entities Back-to-Front (highest distance from camera drawn first)
     def _dist_sq(entity):
@@ -1308,7 +1303,7 @@ def display():
     elif lava_alert_timer > 0:
         draw_text(15, WINDOW_HEIGHT - 120, f"ALERT: {hazard_alert_text}")
 
-    draw_text(15, 20, "WASD: Move | Mouse: Aim | Space: Jump | Ctrl: Crouch | V/RMB: Camera | P: Pause | C: God Mode | R: Reset", font=GLUT_BITMAP_HELVETICA_12)
+    draw_text(15, 20, "WASD: Move | Mouse: Aim | Space: Jump | Ctrl/X: Crouch | V/RMB: Camera | P: Pause | C: God Mode | R: Reset", font=GLUT_BITMAP_HELVETICA_12)
 
     glutSwapBuffers()
 
@@ -1322,8 +1317,8 @@ LAVA_PIT_1_ZMIN = 66.0     # Full corridor start
 LAVA_PIT_1_ZMAX = 114.4    # Full corridor end
 # (no separate pit 2 — entire corridor is one lava zone)
 
-# Rock top surface Y = 1.25  (centre Y=1.0 + half-height 0.25)
-STEP_TOP_Y = 1.25
+# Rock top surface Y = 1.34  (matching 2x3 basalt lava tile top)
+STEP_TOP_Y = 1.34
 
 # All 8 rocks: (x_centre, z_centre, half_x, half_z)
 # Strict hitboxes matching exact visual rock size (3.6x4.2 slab -> half_x=1.8, half_z=2.1)
@@ -1836,6 +1831,10 @@ def keyboard_listener(key, x, y):
     elif ch == 'v':
         first_person = not first_person
 
+    # Crouch Toggle: X, Z keys
+    elif ch in ('x', 'z') or key in (b'x', b'z'):
+        crouching = not crouching
+
     # Demo Toggles: M (Moving Walls), T (Platforms)
     elif ch == 'm':
         anim_moving_walls = not anim_moving_walls
@@ -1846,9 +1845,13 @@ def keyboard_listener(key, x, y):
 
 def special_key_listener(key, x, y):
     """
-    Special keys listener (glutSpecialFunc). Arrow key movement removed in favor of Level 3 mouse aiming.
+    Special keys listener (glutSpecialFunc).
+    Supports Left/Right Ctrl and Shift keys for toggling crouching.
     """
-    pass
+    global crouching
+    if key in (114, 115, 112, 113):  # GLUT_KEY_CTRL_L, GLUT_KEY_CTRL_R, GLUT_KEY_SHIFT_L, GLUT_KEY_SHIFT_R
+        crouching = not crouching
+        glutPostRedisplay()
 
 def mouse_listener(button, state, x, y):
     """
