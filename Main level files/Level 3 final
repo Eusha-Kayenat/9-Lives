@@ -1769,15 +1769,31 @@ def setup_camera():
         center_z = eye_z + math.cos(rad) * math.cos(rad_pitch) * 100.0
         gluLookAt(eye_x, eye_y, eye_z, center_x, center_y, center_z, 0, 1, 0)
 
+_user32 = ctypes.windll.user32
+
+def update_window_dimensions():
+    global WIN_W, WIN_H
+    try:
+        hwnd = _user32.GetForegroundWindow()
+        if not hwnd:
+            hwnd = _user32.GetActiveWindow()
+        if hwnd:
+            from ctypes import wintypes
+            rect = wintypes.RECT()
+            if _user32.GetClientRect(hwnd, ctypes.byref(rect)):
+                w = rect.right - rect.left
+                h = rect.bottom - rect.top
+                if w > 200 and h > 200:
+                    WIN_W = w
+                    WIN_H = h
+    except:
+        pass
+
 def display():
     global WIN_W, WIN_H
+    update_window_dimensions()
 
-    cur_w = glutGet(GLUT_WINDOW_WIDTH)
-    cur_h = glutGet(GLUT_WINDOW_HEIGHT)
-    if cur_w > 0 and cur_h > 0:
-        WIN_W, WIN_H = cur_w, cur_h
-
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glClear(GL_COLOR_BUFFER_BIT)
     glLoadIdentity()
     setup_camera()
 
@@ -2176,7 +2192,7 @@ def reset_level_3():
 
 def main():
     glutInit(sys.argv)
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB)
     glutInitWindowSize(WIN_W, WIN_H)
     glutInitWindowPosition(60, 40)
     glutCreateWindow(b"9 Lives - Level 3: Boss Fight (Evil Larry)")
