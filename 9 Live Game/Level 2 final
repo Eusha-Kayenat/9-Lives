@@ -141,7 +141,7 @@ zombies = []
 MAX_ACTIVE_ZOMBIES = 4       # Number of simultaneous zombies in arena
 ZOMBIE_SPAWN_INTERVAL = 120  # frames between spawns (~2 seconds)
 zombie_spawn_timer = 0
-zombie_base_speed = 0.5    # Extra slow shambling speed
+zombie_base_speed = 0.020    # Extra slow shambling speed
 
 # -----------------------------------------------------------------------------
 # Crate Obstacles Data & Bounding Boxes
@@ -575,7 +575,6 @@ def draw_level_exit_door(cam_x=0.0, cam_y=0.0, cam_z=0.0):
 
     # ---- Bright pulsing outline (GL_LINES) ----
     glColor3f(r, g * pulse, b)
-    glLineWidth(3.5)
     glBegin(GL_LINES)
     # Outer rect
     glVertex3f(door_x - door_w, door_bottom_y,          door_z)
@@ -595,7 +594,6 @@ def draw_level_exit_door(cam_x=0.0, cam_y=0.0, cam_z=0.0):
 
     # ---- Vertical glow beams rising from floor ----
     glColor3f(r * 0.6, g, b * 0.8)
-    glLineWidth(2.0)
     glBegin(GL_LINES)
     for bx in [-door_w, 0.0, door_w]:
         glVertex3f(door_x + bx, door_bottom_y,      door_z - 0.05)
@@ -613,7 +611,6 @@ def draw_level_exit_door(cam_x=0.0, cam_y=0.0, cam_z=0.0):
         glVertex3f(door_x + orbit_r * math.cos(ang), orbit_y, door_z + orbit_r * 0.12 * math.sin(ang))
     glEnd()
 
-    glLineWidth(1.0)
     glPointSize(1.0)
 
 # -----------------------------------------------------------------------------
@@ -733,7 +730,6 @@ def draw_gun_pickup():
     glPopMatrix()
 
     glColor3f(*COLOR_PEDESTAL_RING)
-    glLineWidth(3.0)
     glBegin(GL_LINES)
     for i in range(24):
         a1 = 2.0 * math.pi * i / 24
@@ -744,7 +740,6 @@ def draw_gun_pickup():
     glEnd()
 
     glColor3f(0.0, 0.75, 1.0)
-    glLineWidth(2.0)
     glBegin(GL_LINES)
     for i in range(4):
         ang = math.pi / 4.0 + i * math.pi / 2.0
@@ -798,7 +793,6 @@ def draw_catnip_pickup():
     cx, cy, cz = catnip_pickup_pos
 
     glColor3f(*COLOR_CATNIP_BLUE)
-    glLineWidth(3.5)
     glBegin(GL_LINES)
     for i in range(24):
         a1 = 2.0 * math.pi * i / 24
@@ -1113,14 +1107,14 @@ class Zombie:
         dz = player_pos[2] - self.pos[2]
         dist = math.sqrt(dx * dx + dz * dz)
 
-        if dist > 0.6:
+        if dist > 1.2:
             step_x = (dx / dist) * self.speed
             step_z = (dz / dist) * self.speed
 
             next_x = self.pos[0] + step_x
             next_z = self.pos[2] + step_z
 
-            res_x, res_z = resolve_entity_crate_collision(next_x, next_z, radius=0.8, y_height=0.5)
+            res_x, res_z = resolve_entity_crate_collision(next_x, next_z, radius=1.6, y_height=1.0)
 
             self.pos[0] = res_x
             self.pos[2] = res_z
@@ -1132,7 +1126,7 @@ class Zombie:
             else:
                 self.yaw = math.degrees(math.atan2(dx, dz))
 
-        limit = ARENA_SIZE - 2.0
+        limit = ARENA_SIZE - 2.5
         self.pos[0] = max(-limit, min(limit, self.pos[0]))
         self.pos[2] = max(-limit, min(limit, self.pos[2]))
 
@@ -1143,7 +1137,7 @@ class Zombie:
         glRotatef(-90, 1, 0, 0)
         glRotatef(180, 0, 0, 1)
 
-        scale_factor = 0.008
+        scale_factor = 0.016
         glScalef(scale_factor, scale_factor, scale_factor)
 
         rad_z = math.radians(self.yaw)
@@ -1211,7 +1205,7 @@ def check_target_lock():
             continue
 
         vx = z.pos[0] - player_pos[0]
-        vy = (z.pos[1] + 1.2) - eye_y
+        vy = (z.pos[1] + 2.4) - eye_y
         vz = z.pos[2] - player_pos[2]
         dist = math.sqrt(vx * vx + vy * vy + vz * vz)
 
@@ -1284,8 +1278,8 @@ def update_grenades_and_explosions():
 
         hit_zombie_target = None
         for z in zombies:
-            dist_sq = (gx - z.pos[0])**2 + (gy - (z.pos[1] + 1.0))**2 + (gz - z.pos[2])**2
-            if dist_sq < 2.5:
+            dist_sq = (gx - z.pos[0])**2 + (gy - (z.pos[1] + 2.0))**2 + (gz - z.pos[2])**2
+            if dist_sq < 6.0:
                 hit_zombie_target = z
                 break
 
@@ -1341,7 +1335,6 @@ def draw_single_death_effect(d):
     alpha_intensity = max(0.2, 1.0 - progress)
 
     glColor3f(1.0 * alpha_intensity, 0.1 * alpha_intensity, 0.1 * alpha_intensity)
-    glLineWidth(3.5)
     glBegin(GL_LINES)
     segs = 28
     for i in range(segs):
@@ -1402,16 +1395,32 @@ def setup_camera():
         gluLookAt(eye_x, eye_y, eye_z, center_x, center_y, center_z, 0.0, 1.0, 0.0)
         return eye_x, eye_y, eye_z
 
+_user32 = ctypes.windll.user32
+
+def update_window_dimensions():
+    global WIN_W, WIN_H
+    try:
+        hwnd = _user32.GetForegroundWindow()
+        if not hwnd:
+            hwnd = _user32.GetActiveWindow()
+        if hwnd:
+            from ctypes import wintypes
+            rect = wintypes.RECT()
+            if _user32.GetClientRect(hwnd, ctypes.byref(rect)):
+                w = rect.right - rect.left
+                h = rect.bottom - rect.top
+                if w > 200 and h > 200:
+                    WIN_W = w
+                    WIN_H = h
+    except:
+        pass
+
 # -----------------------------------------------------------------------------
 # Main Display Callback (Full Unified Painter's Algorithm)
 # -----------------------------------------------------------------------------
 def display():
     global WIN_W, WIN_H
-
-    cur_w = glutGet(GLUT_WINDOW_WIDTH)
-    cur_h = glutGet(GLUT_WINDOW_HEIGHT)
-    if cur_w > 0 and cur_h > 0:
-        WIN_W, WIN_H = cur_w, cur_h
+    update_window_dimensions()
 
     # Painter's Algorithm: colour buffer only (no depth buffer)
     glClear(GL_COLOR_BUFFER_BIT)
@@ -1457,8 +1466,6 @@ def display():
     # Catnip Pickup
     if catnip_spawned and not catnip_picked_up:
         render_list.append((catnip_pickup_pos[0], catnip_pickup_pos[1], catnip_pickup_pos[2], draw_catnip_pickup))
-
-    # Red Glow Death Effects
     for d in death_effects:
         def _draw_de(d=d):
             draw_single_death_effect(d)
@@ -1468,7 +1475,7 @@ def display():
     for z in zombies:
         def _draw_z(z=z):
             z.draw(cam_x, cam_z)
-        render_list.append((z.pos[0], z.pos[1] + 1.0, z.pos[2], _draw_z))
+        render_list.append((z.pos[0], z.pos[1] + 2.0, z.pos[2], _draw_z))
 
     # Player Character
     if not first_person:
@@ -1581,7 +1588,7 @@ def idle():
     for z in zombies:
         z.update()
         dist_to_player = math.sqrt((z.pos[0] - player_pos[0])**2 + (z.pos[2] - player_pos[2])**2)
-        if dist_to_player < 1.5 and player_invulnerable_timer <= 0:
+        if dist_to_player < 2.2 and player_invulnerable_timer <= 0:
             if not cheat_mode:
                 player_hits_left -= 1
                 player_invulnerable_timer = 50
