@@ -261,6 +261,7 @@ def main():
     glEnable(GL_DEPTH_TEST)
     
     glutDisplayFunc(display)
+    glutReshapeFunc(reshape)
     glutMouseFunc(mouse)
     glutMotionFunc(motion)
     glutMainLoop()

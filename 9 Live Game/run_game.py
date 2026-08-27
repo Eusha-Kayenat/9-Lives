@@ -67,8 +67,22 @@ def load_level_module(level_num):
     """
     file_path = LEVEL_FILES.get(level_num)
     if not file_path or not os.path.isfile(file_path):
-        print(f"[ERROR] Level {level_num} file not found: {file_path}")
-        sys.exit(1)
+        base_name = f"Level {level_num} final"
+        candidates = []
+        for folder in [MAIN_LEVEL_DIR, BASE_DIR]:
+            candidates.append(os.path.join(folder, f"{base_name}.py"))
+            candidates.append(os.path.join(folder, base_name))
+        
+        found = None
+        for cand in candidates:
+            if os.path.isfile(cand):
+                found = cand
+                break
+        if found:
+            file_path = found
+        else:
+            print(f"[ERROR] Level {level_num} file not found: {file_path}")
+            sys.exit(1)
 
     with open(file_path, 'r', encoding='utf-8', errors='ignore') as fp:
         code_str = fp.read()

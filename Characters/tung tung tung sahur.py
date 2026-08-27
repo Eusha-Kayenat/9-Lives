@@ -216,6 +216,7 @@ def main():
     glClearColor(0.12, 0.12, 0.15, 1.0)
 
     glutDisplayFunc(display)
+    glutReshapeFunc(reshape)
     glutMouseFunc(mouse)
     glutMotionFunc(motion)
 
