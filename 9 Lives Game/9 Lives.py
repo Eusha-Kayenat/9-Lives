@@ -67,11 +67,12 @@ def load_level_module(level_num):
     """
     file_path = LEVEL_FILES.get(level_num)
     if not file_path or not os.path.isfile(file_path):
-        base_name = f"Level {level_num} final"
+        base_names = [f"Level {level_num} final", f"Level {level_num}"]
         candidates = []
         for folder in [MAIN_LEVEL_DIR, BASE_DIR]:
-            candidates.append(os.path.join(folder, f"{base_name}.py"))
-            candidates.append(os.path.join(folder, base_name))
+            for base_name in base_names:
+                candidates.append(os.path.join(folder, f"{base_name}.py"))
+                candidates.append(os.path.join(folder, base_name))
         
         found = None
         for cand in candidates:
