@@ -51,8 +51,9 @@ WINDOW_TITLE = b"9 Lives - Level 1: Connected Backrooms Maze Arena ('tung tung t
 # Player & Physics State
 # -----------------------------------------------------------------------------
 player_pos = [0.0, 1.0, 7.4]     # X, Y, Z coordinates
-player_yaw = 0.0                  # Character facing angle in degrees
-player_pitch = 0.0                # Pitch angle looking up/down
+player_yaw = 0.0                  # Character facing angle in degrees (set by movement)
+camera_yaw = 0.0                  # Camera orbit angle in degrees (mouse controlled)
+player_pitch = 0.0                # Camera pitch angle looking up/down
 player_speed = 0.90         # Movement speed factor
 crouching = False                 # Crouch state
 walk_cycle_phase = 0.0            # Leg-swing animation phase, advances only while actually moving
@@ -262,7 +263,7 @@ def draw_character(cam_x=0.0, cam_z=0.0):
     glPushMatrix()
     curr_y = player_pos[1]
     glTranslatef(player_pos[0], curr_y, player_pos[2])
-    glRotatef(player_yaw + 180.0, 0, 1, 0)
+    glRotatef(player_yaw, 0, 1, 0)
 
     # Align model Z (height) -> World Y, model Y (front) -> World Z
     glRotatef(-90, 1, 0, 0)
@@ -282,7 +283,8 @@ def draw_character(cam_x=0.0, cam_z=0.0):
     fwd_z = math.cos(rad_yaw)
     to_cam_x = cam_x - player_pos[0]
     to_cam_z = cam_z - player_pos[2]
-    # Check if camera is looking at character front (face) or back
+    # Camera is in front of character when its position is in the same
+    # direction as the character's facing vector
     is_front = (fwd_x * to_cam_x + fwd_z * to_cam_z) > 0.0
 
     def draw_face_details():
@@ -290,21 +292,21 @@ def draw_character(cam_x=0.0, cam_z=0.0):
         for eye_x in [-16, 16]:
             glPushMatrix()
             glColor3f(*c_goggle)
-            glTranslatef(eye_x, 21, 160)
+            glTranslatef(eye_x, 31, 160)
             glScalef(0.28, 0.08, 0.35)
             glutSolidCube(100)
             glPopMatrix()
 
             glPushMatrix()
             glColor3f(*c_white)
-            glTranslatef(eye_x, 25, 160)
+            glTranslatef(eye_x, 35, 160)
             glScalef(0.18, 0.08, 0.22)
             glutSolidCube(100)
             glPopMatrix()
 
             glPushMatrix()
             glColor3f(*c_dark)
-            glTranslatef(eye_x, 29, 160)
+            glTranslatef(eye_x, 39, 160)
             glScalef(0.08, 0.05, 0.1)
             glutSolidCube(100)
             glPopMatrix()
@@ -312,7 +314,7 @@ def draw_character(cam_x=0.0, cam_z=0.0):
             # Eyebrow
             glPushMatrix()
             glColor3f(*c_dark)
-            glTranslatef(eye_x, 22, 185)
+            glTranslatef(eye_x, 32, 185)
             glScalef(0.25, 0.06, 0.06)
             glutSolidCube(100)
             glPopMatrix()
@@ -320,15 +322,30 @@ def draw_character(cam_x=0.0, cam_z=0.0):
         # Nose & Smirk
         glPushMatrix()
         glColor3f(*c_dark)
-        glTranslatef(0, 22, 138)
+        glTranslatef(0, 32, 138)
         glScalef(0.06, 0.06, 0.16)
         glutSolidCube(100)
         glPopMatrix()
 
         glPushMatrix()
         glColor3f(*c_dark)
-        glTranslatef(-2, 22, 122)
+        glTranslatef(-2, 32, 122)
         glScalef(0.38, 0.06, 0.06)
+        glutSolidCube(100)
+        glPopMatrix()
+
+        # Smile upturns (left & right corners)
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(-21, 32, 130)
+        glScalef(0.06, 0.06, 0.14)
+        glutSolidCube(100)
+        glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(17, 32, 128)
+        glScalef(0.06, 0.06, 0.10)
         glutSolidCube(100)
         glPopMatrix()
 
@@ -340,7 +357,7 @@ def draw_character(cam_x=0.0, cam_z=0.0):
     glPushMatrix()
     glColor3f(*c_body)
     glTranslatef(0, 0, 120)
-    glScalef(0.65, 0.4, 1.8)
+    glScalef(0.65, 0.60, 1.8)
     glutSolidCube(100)
     glPopMatrix()
 
@@ -353,7 +370,7 @@ def draw_character(cam_x=0.0, cam_z=0.0):
         glPushMatrix()
         glColor3f(*c_body)
         glTranslatef(side_x, 0, 95)
-        glScalef(0.12, 0.2, 0.9)
+        glScalef(0.12, 0.30, 0.9)
         glutSolidCube(100)
         glPopMatrix()
 
@@ -903,7 +920,7 @@ def setup_camera():
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
 
-    rad_yaw = math.radians(player_yaw)
+    rad_yaw = math.radians(camera_yaw)
     rad_pitch = math.radians(player_pitch)
 
     curr_eye_h = 0.8 if crouching else eye_height
@@ -925,9 +942,9 @@ def setup_camera():
         cam_y = player_pos[1] + cam_height
         cam_z = player_pos[2] - math.cos(rad_yaw) * cam_dist
 
-        center_x = cam_x + math.sin(rad_yaw) * math.cos(rad_pitch) * 100.0
-        center_y = cam_y + math.sin(rad_pitch) * 100.0
-        center_z = cam_z + math.cos(rad_yaw) * math.cos(rad_pitch) * 100.0
+        center_x = player_pos[0]
+        center_y = player_pos[1] + 1.2
+        center_z = player_pos[2]
 
         gluLookAt(cam_x, cam_y, cam_z,
                   center_x, center_y, center_z,
@@ -1068,16 +1085,17 @@ def draw_story_screen():
 
     # 5. Pulsing Bottom Prompt Button Bar
     prompt_str = "PRESS SPACE OR ENTER TO START"
-    # Measure approximate pixel width for horizontal centering using per-character width estimate
-    p_w = len(prompt_str) * 9.2
+    # Use glutBitmapWidth for pixel-accurate string width measurement
+    p_w = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(ch)) for ch in prompt_str)
     p_start_x = (WINDOW_WIDTH - p_w) // 2
     prompt_y = py1 + 35
 
     pulse_val = 0.5 + 0.5 * math.sin(story_timer * 0.08)
 
-    # Symmetrical prompt button box dimensions (24px horizontal, 18px vertical padding)
-    box_x1 = p_start_x - 24
-    box_x2 = p_start_x + p_w + 24
+    # Generous horizontal padding so border always fully wraps the text
+    box_pad_x = 36
+    box_x1 = p_start_x - box_pad_x
+    box_x2 = p_start_x + p_w + box_pad_x
     box_y1 = prompt_y - 10
     box_y2 = prompt_y + 26
 
@@ -1095,9 +1113,8 @@ def draw_story_screen():
 
 def display():
     """
-    Main OpenGL Display Callback with Full Unified Painter's Algorithm.
-    Renders floors, subdivided walls, hazards, and entities in strict back-to-front
-    distance order without using any restricted OpenGL functions (e.g. no glEnable).
+    Main OpenGL Display Callback with Depth-Tested Rendering.
+    Uses GL_DEPTH_TEST for clean, smooth, correct back-to-front occlusion.
     """
     update_window_dimensions()
 
@@ -1105,8 +1122,10 @@ def display():
         draw_story_screen()
         return
 
-    # Painter's Algorithm: colour buffer only (no depth buffer)
-    glClear(GL_COLOR_BUFFER_BIT)
+    # Depth-buffered rendering for clean, flicker-free visuals
+    glEnable(GL_DEPTH_TEST)
+    glDepthFunc(GL_LEQUAL)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glLoadIdentity()
 
     setup_camera()
@@ -1115,7 +1134,7 @@ def display():
     draw_connected_floor_pathways()
     draw_lava_base_only()
 
-    rad = math.radians(player_yaw)
+    rad = math.radians(camera_yaw)
     curr_eye_h = 0.8 if crouching else eye_height
 
     if first_person:
@@ -1285,13 +1304,7 @@ def display():
                 draw_character(cam_x, cam_z)
         render_list.append((player_pos[0], player_pos[1] + 0.8, player_pos[2], _draw_player))
 
-    # 3. Sort all entities Back-to-Front (Painter's Algorithm)
-    def _dist_sq(entity):
-        ex, ey, ez, fn = entity
-        return (ex - cam_x)**2 + (ey - cam_y)**2 + (ez - cam_z)**2
-
-    render_list.sort(key=_dist_sq, reverse=True)
-
+    # 3. Render all entities (depth test handles occlusion automatically)
     for ex, ey, ez, fn in render_list:
         fn()
 
@@ -1322,7 +1335,7 @@ def display():
     elif lava_alert_timer > 0:
         draw_text(15, WINDOW_HEIGHT - 120, f"ALERT: {hazard_alert_text}")
 
-    draw_text(15, 20, "WASD: Move | Mouse: Aim | Space: Jump | Ctrl/X: Crouch | V/RMB: Camera | P: Pause | C: God Mode | R: Reset", font=GLUT_BITMAP_HELVETICA_12)
+    draw_text(15, 20, "WASD: Move | Mouse: Orbit Camera | Space: Jump | Ctrl/X: Crouch | V/RMB: 1st/3rd Person | P: Pause | C: God Mode | R: Reset", font=GLUT_BITMAP_HELVETICA_12)
 
     glutSwapBuffers()
 
@@ -1596,7 +1609,7 @@ def idle():
     global story_timer, story_char_index, in_story_screen
     global moving_walls_offset, moving_walls_dir, platform_timer, disappearing_tiles_active
     global wall_invincibility_timer, game_paused, game_over
-    global player_yaw, player_pitch, last_mouse_x, last_mouse_y, mouse_initialized
+    global player_yaw, camera_yaw, player_pitch, last_mouse_x, last_mouse_y, mouse_initialized
 
     if in_story_screen:
         story_timer += 1
@@ -1620,7 +1633,7 @@ def idle():
                 dy = _pt.y - last_mouse_y
                 if dx != 0 or dy != 0:
                     mouse_sensitivity = 0.28
-                    player_yaw = (player_yaw + dx * mouse_sensitivity) % 360.0
+                    camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
                     player_pitch = max(-65.0, min(65.0, player_pitch - dy * mouse_sensitivity))
             else:
                 mouse_initialized = True
@@ -1708,15 +1721,12 @@ def is_valid_walkway_position(x, z):
 
     return False
 
+PLAYER_RADIUS = 0.42  # Collision radius to prevent phasing through walls
+
 def try_move_player(dx, dz):
     """
-    Attempts to move player by (dx, dz) with smooth wall sliding response.
+    Attempts to move player by (dx, dz) with smooth wall sliding and collision radius.
     Prevents player from phasing through any wall.
-
-    Also drives the leg walk-cycle: walk_cycle_phase only advances (and
-    is_walking is only set True) when the player actually ends up moving,
-    so legs swing while walking and stop immediately when blocked by a
-    wall or standing still.
     """
     global walk_cycle_phase, is_walking, _idle_ticks_since_move
 
@@ -1724,18 +1734,27 @@ def try_move_player(dx, dz):
     new_z = player_pos[2] + dz
 
     moved = False
+    r = PLAYER_RADIUS
+
+    def pos_ok(x, z):
+        """Check all radius points to prevent wall phasing."""
+        return (is_valid_walkway_position(x, z) and
+                is_valid_walkway_position(x - r, z) and
+                is_valid_walkway_position(x + r, z) and
+                is_valid_walkway_position(x, z - r) and
+                is_valid_walkway_position(x, z + r))
 
     # 1. Try full movement
-    if is_valid_walkway_position(new_x, new_z):
+    if pos_ok(new_x, new_z):
         player_pos[0] = new_x
         player_pos[2] = new_z
         moved = True
     # 2. Slide along X axis only
-    elif is_valid_walkway_position(new_x, player_pos[2]):
+    elif pos_ok(new_x, player_pos[2]):
         player_pos[0] = new_x
         moved = True
     # 3. Slide along Z axis only
-    elif is_valid_walkway_position(player_pos[0], new_z):
+    elif pos_ok(player_pos[0], new_z):
         player_pos[2] = new_z
         moved = True
 
@@ -1749,7 +1768,7 @@ def reset_game():
     Restores player position, facing angle, physics state, hazard counters, alerts,
     and game over/paused states back to initial start level defaults.
     """
-    global player_pos, player_yaw, player_pitch, crouching, first_person, is_jumping, y_velocity
+    global player_pos, player_yaw, camera_yaw, player_pitch, crouching, first_person, is_jumping, y_velocity
     global consecutive_lava_falls, lava_alert_timer, hazard_alert_text
     global consecutive_wall_hits, wall_invincibility_timer, cheat_mode, game_over, game_paused
     global moving_walls_offset, moving_walls_dir
@@ -1758,6 +1777,7 @@ def reset_game():
 
     player_pos = [0.0, 1.0, 7.4]
     player_yaw = 0.0
+    camera_yaw = 0.0
     player_pitch = 0.0
     mouse_initialized = False
     crouching = False
@@ -1781,7 +1801,7 @@ def keyboard_listener(key, x, y):
     """
     Handles WASD, Spacebar, C, V, P, M, T, R, and ESC keys (glutKeyboardFunc).
     """
-    global in_story_screen, player_pos, player_yaw, crouching, first_person, anim_moving_walls, anim_disappearing_floor
+    global in_story_screen, player_pos, player_yaw, camera_yaw, crouching, first_person, anim_moving_walls, anim_disappearing_floor
     global is_jumping, y_velocity, game_paused
     global consecutive_lava_falls, lava_alert_timer, game_over
     global consecutive_wall_hits, wall_invincibility_timer, cheat_mode, hazard_alert_text
@@ -1826,18 +1846,22 @@ def keyboard_listener(key, x, y):
     if game_paused or game_over:
         return
 
-    rad = math.radians(player_yaw)
+    rad = math.radians(camera_yaw)
 
-    # Movement: W (Forward), S (Backward) along facing angle
+    # Movement: W (Forward), S (Backward) along camera orbit angle
     if ch == 'w':
+        player_yaw = camera_yaw
         try_move_player(math.sin(rad) * player_speed, math.cos(rad) * player_speed)
     elif ch == 's':
+        player_yaw = (camera_yaw + 180.0) % 360.0
         try_move_player(-math.sin(rad) * player_speed, -math.cos(rad) * player_speed)
 
-    # Strafe / Turn: A (Strafe Left), D (Strafe Right)
+    # Strafe: A (Left), D (Right)
     elif ch == 'a':
+        player_yaw = (camera_yaw + 90.0) % 360.0
         try_move_player(math.sin(rad + math.pi/2.0) * player_speed, math.cos(rad + math.pi/2.0) * player_speed)
     elif ch == 'd':
+        player_yaw = (camera_yaw - 90.0) % 360.0
         try_move_player(math.sin(rad - math.pi/2.0) * player_speed, math.cos(rad - math.pi/2.0) * player_speed)
 
     # Jump Action: Spacebar (b' ' / 0x20)
@@ -1887,7 +1911,7 @@ def mouse_listener(button, state, x, y):
 # -----------------------------------------------------------------------------
 def main():
     glutInit(sys.argv)
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB)
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
     glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT)
     glutInitWindowPosition(100, 50)
     glutCreateWindow(WINDOW_TITLE)

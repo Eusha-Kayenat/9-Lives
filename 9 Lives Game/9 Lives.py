@@ -190,12 +190,8 @@ def render_string_2d(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HEL
         glutBitmapCharacter(font, ord(ch))
 
 def render_string_centered(y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18):
-    char_w = 9.0
-    if font == GLUT_BITMAP_HELVETICA_12:
-        char_w = 6.5
-    elif font == GLUT_BITMAP_TIMES_ROMAN_24:
-        char_w = 12.0
-    total_w = len(text_str) * char_w
+    # Use glutBitmapWidth for pixel-accurate string width measurement
+    total_w = sum(glutBitmapWidth(font, ord(ch)) for ch in text_str)
     start_x = max(20, (WINDOW_WIDTH - total_w) / 2.0)
     render_string_2d(start_x, y, text_str, color=color, font=font)
 
@@ -262,7 +258,7 @@ def draw_transition_screen(from_lvl, to_lvl):
     if from_lvl == 1 and to_lvl == 2:
         badge_text = "* * *   LEVEL 1 CLEARED : THE BACKROOMS CONQUERED   * * *"
         badge_color = (0.2, 1.0, 0.5)
-        title_text = "DIMENSIONAL WARP >> SECTOR 2: THE ZOMBIE CAT ARENA"
+        title_text = "DIMENSIONAL WARP >> SECTOR 2: THE ZOMBIE ARENA"
         title_color = (0.0, 0.95, 1.0)
     elif from_lvl == 2 and to_lvl == 3:
         badge_text = "* * *   LEVEL 2 CLEARED : ZOMBIE HORDE PURGED   * * *"
@@ -305,7 +301,7 @@ def draw_transition_screen(from_lvl, to_lvl):
             ("", (1, 1, 1)),
             ("CURRENT SITUATION (LEVEL 2):", (1.0, 0.4, 0.4)),
             ("- You have emerged inside an abandoned high-security warehouse arena.", (0.9, 0.95, 1.0)),
-            ("- The sector is overrun by 10 mutated Zombie Cats!", (1.0, 0.75, 0.3)),
+            ("- The sector is overrun by 10 mutated Zombies!", (1.0, 0.75, 0.3)),
             ("- A tactical Grenade Launcher is resting on the central weapon pedestal.", (0.2, 0.95, 1.0)),
             ("- Eliminate all 10 zombies to unlock the rare Glowing Blue Catnip.", (0.2, 1.0, 0.6)),
             ("- Collect the catnip and enter the Glowing North Door to reach the Boss Sanctum.", (0.2, 1.0, 0.9)),
@@ -357,10 +353,10 @@ def draw_transition_screen(from_lvl, to_lvl):
     draw_rect_border_2d(btn_x, btn_y, btn_x + btn_w, btn_y + btn_h, btn_border, line_width=2.5)
 
     prompt_label = f">> PRESS [ SPACEBAR ] OR [ ENTER ] TO ENTER LEVEL {to_lvl} <<"
-    render_string_centered(btn_y + 14, prompt_label, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
+    # Vertically center text inside button box (HELVETICA_18 is ~14px tall, baseline offset ~5px)
+    render_string_centered(btn_y + (btn_h - 14) // 2 + 5, prompt_label, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
 
     # 6. Hint Bar
-    render_string_centered(22, "Press 'P' to pause  |  'R' to restart level  |  'ESC' / 'Q' to quit", color=(0.55, 0.65, 0.75), font=GLUT_BITMAP_HELVETICA_12)
 
     glPopMatrix()
     glMatrixMode(GL_PROJECTION)
@@ -446,146 +442,168 @@ def update_window_dimensions():
 
 def master_display():
     global current_state
-    update_window_dimensions()
+    try:
+        update_window_dimensions()
 
-    if current_state == STATE_LEVEL_1:
-        if lvl1 and 'display' in lvl1:
-            lvl1['display']()
+        if current_state == STATE_LEVEL_1:
+            if lvl1 and 'display' in lvl1:
+                lvl1['display']()
 
-    elif current_state == STATE_TRANSITION_1_TO_2:
-        draw_transition_screen(1, 2)
+        elif current_state == STATE_TRANSITION_1_TO_2:
+            draw_transition_screen(1, 2)
 
-    elif current_state == STATE_LEVEL_2:
-        if lvl2 and 'display' in lvl2:
-            lvl2['display']()
+        elif current_state == STATE_LEVEL_2:
+            if lvl2 and 'display' in lvl2:
+                lvl2['display']()
 
-    elif current_state == STATE_TRANSITION_2_TO_3:
-        draw_transition_screen(2, 3)
+        elif current_state == STATE_TRANSITION_2_TO_3:
+            draw_transition_screen(2, 3)
 
-    elif current_state == STATE_LEVEL_3:
-        if lvl3 and 'display' in lvl3:
-            lvl3['display']()
+        elif current_state == STATE_LEVEL_3:
+            if lvl3 and 'display' in lvl3:
+                lvl3['display']()
+    except Exception as e:
+        print(f"[ERROR in master_display]: {e}")
 
 def master_idle():
     global current_state, transition_timer
+    try:
+        # -------------------------------------------------------------
+        # STATE: LEVEL 1 (Backrooms Maze)
+        # -------------------------------------------------------------
+        if current_state == STATE_LEVEL_1:
+            if lvl1 and 'idle' in lvl1:
+                lvl1['idle']()
 
-    # -------------------------------------------------------------
-    # STATE: LEVEL 1 (Backrooms Maze)
-    # -------------------------------------------------------------
-    if current_state == STATE_LEVEL_1:
-        if lvl1 and 'idle' in lvl1:
-            lvl1['idle']()
+            # Check Level 1 Exit Portal Gate Condition (Portal at X=70, Z=330)
+            pos = lvl1.get('player_pos') if lvl1 else None
+            if pos:
+                px, py, pz = pos[0], pos[1], pos[2]
+                dist_to_portal = math.sqrt((px - 70.0)**2 + (pz - 330.0)**2)
+                if (64.0 <= px <= 76.0 and pz >= 318.0) or dist_to_portal <= 9.0:
+                    start_transition_1_to_2()
 
-        # Check Level 1 Exit Portal Gate Condition (Portal at X=70, Z=330)
-        pos = lvl1.get('player_pos') if lvl1 else None
-        if pos:
-            px, py, pz = pos[0], pos[1], pos[2]
-            dist_to_portal = math.sqrt((px - 70.0)**2 + (pz - 330.0)**2)
-            if (64.0 <= px <= 76.0 and pz >= 318.0) or dist_to_portal <= 9.0:
-                start_transition_1_to_2()
+        # -------------------------------------------------------------
+        # STATE: TRANSITION 1 -> 2
+        # -------------------------------------------------------------
+        elif current_state == STATE_TRANSITION_1_TO_2:
+            transition_timer += 1
+            update_transition_particles()
+            glutPostRedisplay()
 
-    # -------------------------------------------------------------
-    # STATE: TRANSITION 1 -> 2
-    # -------------------------------------------------------------
-    elif current_state == STATE_TRANSITION_1_TO_2:
-        transition_timer += 1
-        update_transition_particles()
-        glutPostRedisplay()
+        # -------------------------------------------------------------
+        # STATE: LEVEL 2 (Zombie Cat Arena)
+        # -------------------------------------------------------------
+        elif current_state == STATE_LEVEL_2:
+            if lvl2 and 'idle' in lvl2:
+                lvl2['idle']()
 
-    # -------------------------------------------------------------
-    # STATE: LEVEL 2 (Zombie Cat Arena)
-    # -------------------------------------------------------------
-    elif current_state == STATE_LEVEL_2:
-        if lvl2 and 'idle' in lvl2:
-            lvl2['idle']()
+            # Check Level 2 Glowing North Exit Door Condition (Door at X=0, Z=59)
+            pos = lvl2.get('player_pos') if lvl2 else None
+            catnip_picked = lvl2.get('catnip_picked_up', False) if lvl2 else False
+            if catnip_picked and pos:
+                px, py, pz = pos[0], pos[1], pos[2]
+                dist_to_door = math.sqrt((px - 0.0)**2 + (pz - 59.0)**2)
+                if (abs(px) <= 6.0 and pz >= 52.0) or dist_to_door <= 7.0:
+                    start_transition_2_to_3()
 
-        # Check Level 2 Glowing North Exit Door Condition (Door at X=0, Z=59)
-        pos = lvl2.get('player_pos') if lvl2 else None
-        catnip_picked = lvl2.get('catnip_picked_up', False) if lvl2 else False
-        if catnip_picked and pos:
-            px, py, pz = pos[0], pos[1], pos[2]
-            dist_to_door = math.sqrt((px - 0.0)**2 + (pz - 59.0)**2)
-            if (abs(px) <= 6.0 and pz >= 52.0) or dist_to_door <= 7.0:
-                start_transition_2_to_3()
+        # -------------------------------------------------------------
+        # STATE: TRANSITION 2 -> 3
+        # -------------------------------------------------------------
+        elif current_state == STATE_TRANSITION_2_TO_3:
+            transition_timer += 1
+            update_transition_particles()
+            glutPostRedisplay()
 
-    # -------------------------------------------------------------
-    # STATE: TRANSITION 2 -> 3
-    # -------------------------------------------------------------
-    elif current_state == STATE_TRANSITION_2_TO_3:
-        transition_timer += 1
-        update_transition_particles()
-        glutPostRedisplay()
-
-    # -------------------------------------------------------------
-    # STATE: LEVEL 3 (Boss Arena)
-    # -------------------------------------------------------------
-    elif current_state == STATE_LEVEL_3:
-        if lvl3 and 'idle' in lvl3:
-            lvl3['idle']()
+        # -------------------------------------------------------------
+        # STATE: LEVEL 3 (Boss Arena)
+        # -------------------------------------------------------------
+        elif current_state == STATE_LEVEL_3:
+            if lvl3 and 'idle' in lvl3:
+                lvl3['idle']()
+    except Exception as e:
+        print(f"[ERROR in master_idle]: {e}")
 
 def master_keyboard(key, x, y):
     global current_state
-
     try:
-        raw_ch = key.decode('utf-8')
-    except:
-        raw_ch = str(key)
-    ch = raw_ch.lower()
+        try:
+            raw_ch = key.decode('utf-8')
+        except:
+            raw_ch = str(key)
+        ch = raw_ch.lower()
 
-    # Global Quit: ESC or 'q'
-    if key == b'\x1b' or ch == 'q':
-        print("\n>> Player exited campaign.")
-        sys.exit(0)
+        # Global Quit: ESC or 'q'
+        if key == b'\x1b' or ch == 'q':
+            print("\n>> Player exited campaign.")
+            sys.exit(0)
 
-    # -------------------------------------------------------------
-    # TRANSITION STATE KEY HANDLING (Spacebar / Enter to Proceed)
-    # -------------------------------------------------------------
-    if current_state == STATE_TRANSITION_1_TO_2:
-        if ch in (' ', '\r', '\n') or key in (b' ', b'\r', b'\n'):
-            enter_level_2()
-        return
+        # -------------------------------------------------------------
+        # TRANSITION STATE KEY HANDLING (Spacebar / Enter to Proceed)
+        # -------------------------------------------------------------
+        if current_state == STATE_TRANSITION_1_TO_2:
+            if ch in (' ', '\r', '\n') or key in (b' ', b'\r', b'\n'):
+                enter_level_2()
+            return
 
-    elif current_state == STATE_TRANSITION_2_TO_3:
-        if ch in (' ', '\r', '\n') or key in (b' ', b'\r', b'\n'):
-            enter_level_3()
-        return
+        elif current_state == STATE_TRANSITION_2_TO_3:
+            if ch in (' ', '\r', '\n') or key in (b' ', b'\r', b'\n'):
+                enter_level_3()
+            return
 
-    # -------------------------------------------------------------
-    # LEVEL KEY ROUTING
-    # -------------------------------------------------------------
-    if current_state == STATE_LEVEL_1:
-        if lvl1 and 'keyboard_listener' in lvl1:
-            lvl1['keyboard_listener'](key, x, y)
+        # -------------------------------------------------------------
+        # LEVEL KEY ROUTING
+        # -------------------------------------------------------------
+        if current_state == STATE_LEVEL_1:
+            if lvl1 and 'keyboard_listener' in lvl1:
+                lvl1['keyboard_listener'](key, x, y)
 
-    elif current_state == STATE_LEVEL_2:
-        if lvl2 and 'keyboard_listener' in lvl2:
-            lvl2['keyboard_listener'](key, x, y)
+        elif current_state == STATE_LEVEL_2:
+            if lvl2 and 'keyboard_listener' in lvl2:
+                lvl2['keyboard_listener'](key, x, y)
 
-    elif current_state == STATE_LEVEL_3:
-        if lvl3 and 'keyboard_listener' in lvl3:
-            lvl3['keyboard_listener'](key, x, y)
+        elif current_state == STATE_LEVEL_3:
+            if lvl3 and 'keyboard_listener' in lvl3:
+                lvl3['keyboard_listener'](key, x, y)
+    except Exception as e:
+        print(f"[ERROR in master_keyboard]: {e}")
 
 def master_special(key, x, y):
-    if current_state == STATE_LEVEL_1:
-        if lvl1 and 'special_key_listener' in lvl1:
-            lvl1['special_key_listener'](key, x, y)
-    elif current_state == STATE_LEVEL_2:
-        if lvl2 and 'special_key_listener' in lvl2:
-            lvl2['special_key_listener'](key, x, y)
-    elif current_state == STATE_LEVEL_3:
-        if lvl3 and 'special_key_listener' in lvl3:
-            lvl3['special_key_listener'](key, x, y)
+    try:
+        if current_state == STATE_LEVEL_1:
+            if lvl1 and 'special_key_listener' in lvl1:
+                lvl1['special_key_listener'](key, x, y)
+        elif current_state == STATE_LEVEL_2:
+            if lvl2 and 'special_key_listener' in lvl2:
+                lvl2['special_key_listener'](key, x, y)
+        elif current_state == STATE_LEVEL_3:
+            if lvl3 and 'special_key_listener' in lvl3:
+                lvl3['special_key_listener'](key, x, y)
+    except Exception as e:
+        print(f"[ERROR in master_special]: {e}")
 
 def master_mouse(button, state, x, y):
-    if current_state == STATE_LEVEL_1:
-        if lvl1 and 'mouse_listener' in lvl1:
-            lvl1['mouse_listener'](button, state, x, y)
-    elif current_state == STATE_LEVEL_2:
-        if lvl2 and 'mouse_listener' in lvl2:
-            lvl2['mouse_listener'](button, state, x, y)
-    elif current_state == STATE_LEVEL_3:
-        if lvl3 and 'mouse_listener' in lvl3:
-            lvl3['mouse_listener'](button, state, x, y)
+    try:
+        # Also allow mouse click on transition screen to proceed
+        if state == GLUT_DOWN:
+            if current_state == STATE_TRANSITION_1_TO_2:
+                enter_level_2()
+                return
+            elif current_state == STATE_TRANSITION_2_TO_3:
+                enter_level_3()
+                return
+
+        if current_state == STATE_LEVEL_1:
+            if lvl1 and 'mouse_listener' in lvl1:
+                lvl1['mouse_listener'](button, state, x, y)
+        elif current_state == STATE_LEVEL_2:
+            if lvl2 and 'mouse_listener' in lvl2:
+                lvl2['mouse_listener'](button, state, x, y)
+        elif current_state == STATE_LEVEL_3:
+            if lvl3 and 'mouse_listener' in lvl3:
+                lvl3['mouse_listener'](button, state, x, y)
+    except Exception as e:
+        print(f"[ERROR in master_mouse]: {e}")
 
 # =============================================================================
 # CAMPAIGN ENTRY POINT
@@ -604,7 +622,7 @@ def run_campaign():
     print("=" * 75 + "\n")
 
     glutInit(sys.argv)
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB)
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
     glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT)
     glutInitWindowPosition(100, 50)
     glutCreateWindow(b"9 Lives - Level 1: Connected Backrooms Maze Arena ('tung tung tung sahur')")

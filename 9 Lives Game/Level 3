@@ -56,6 +56,7 @@ OUTER_HEIGHT = 100.0
 # =============================================================================
 player_pos   = [0.0, 0.0, -320.0]
 player_yaw   = 0.0
+camera_yaw   = 0.0
 player_pitch = 0.0
 BASE_PLAYER_SPEED = 5
 player_speed = 5
@@ -78,7 +79,7 @@ score            = 0
 
 first_person = False
 cam_dist     = 48.0
-cam_height   = 14.0
+cam_height   = 28.0
 
 last_mouse_x = 0
 last_mouse_y = 0
@@ -96,10 +97,10 @@ active_weapon = "gun"
 # =============================================================================
 evil_larry_pos      = [0.0, 0.0, 0.0]
 evil_larry_yaw      = 180.0
-EVIL_LARRY_MAX_SHIELD = 300.0
-EVIL_LARRY_MAX_HP     = 500.0
-evil_larry_shield     = 300.0
-evil_larry_hp         = 500.0
+EVIL_LARRY_MAX_SHIELD = 500.0
+EVIL_LARRY_MAX_HP     = 2000.0
+evil_larry_shield     = 500.0
+evil_larry_hp         = 2000.0
 evil_larry_shield_broken = False
 evil_larry_speed      = 0.52
 evil_larry_hit_flash  = 0
@@ -676,8 +677,9 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
 
     glPushMatrix()
     glTranslatef(player_pos[0], player_pos[1], player_pos[2])
-    glRotatef(player_yaw + 180.0, 0, 1, 0)
+    glRotatef(player_yaw, 0, 1, 0)
     glRotatef(-90.0, 1, 0, 0)
+    glRotatef(180.0, 0, 0, 1)
 
     scale_f = 0.08
     if crouching:
@@ -685,7 +687,7 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
     else:
         glScalef(scale_f, scale_f, scale_f)
 
-    glTranslatef(0, 0, 10.0)
+    glTranslatef(0, 0, 14.0)
 
     c_body   = (222/255, 137/255, 34/255)
     c_dark   = (117/255, 76/255, 18/255)
@@ -703,53 +705,69 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
         for eye_x in [-16, 16]:
             glPushMatrix()
             glColor3f(*c_goggle)
-            glTranslatef(eye_x, 21, 140)
+            glTranslatef(eye_x, 31, 160)
             glScalef(0.28, 0.08, 0.35)
             glutSolidCube(100)
             glPopMatrix()
 
             glPushMatrix()
             glColor3f(*c_white)
-            glTranslatef(eye_x, 25, 140)
+            glTranslatef(eye_x, 35, 160)
             glScalef(0.18, 0.08, 0.22)
             glutSolidCube(100)
             glPopMatrix()
 
             glPushMatrix()
             glColor3f(*c_dark)
-            glTranslatef(eye_x, 29, 140)
+            glTranslatef(eye_x, 39, 160)
             glScalef(0.08, 0.05, 0.1)
             glutSolidCube(100)
             glPopMatrix()
 
             glPushMatrix()
             glColor3f(*c_dark)
-            glTranslatef(eye_x, 22, 162)
+            glTranslatef(eye_x, 32, 185)
             glScalef(0.25, 0.06, 0.06)
             glutSolidCube(100)
             glPopMatrix()
 
         glPushMatrix()
         glColor3f(*c_dark)
-        glTranslatef(0, 22, 120)
+        glTranslatef(0, 32, 138)
         glScalef(0.06, 0.06, 0.16)
         glutSolidCube(100)
         glPopMatrix()
 
         glPushMatrix()
         glColor3f(*c_dark)
-        glTranslatef(-2, 22, 105)
+        glTranslatef(-2, 32, 122)
         glScalef(0.38, 0.06, 0.06)
+        glutSolidCube(100)
+        glPopMatrix()
+
+        # Smile upturns (left & right corners)
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(-21, 32, 130)
+        glScalef(0.06, 0.06, 0.14)
+        glutSolidCube(100)
+        glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(17, 32, 128)
+        glScalef(0.06, 0.06, 0.10)
         glutSolidCube(100)
         glPopMatrix()
 
     if not is_front:
         draw_face_details()
 
+    # Main Body
     glPushMatrix()
     glColor3f(*c_body)
-    glTranslatef(0, 0, 95)
-    glScalef(0.65, 0.4, 1.5)
+    glTranslatef(0, 0, 120)
+    glScalef(0.65, 0.60, 1.8)
     glutSolidCube(100)
     glPopMatrix()
 
@@ -759,55 +777,43 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
     # Left Arm
     glPushMatrix()
     glColor3f(*c_body)
-    glTranslatef(-38.5, 0, 85)
-    glScalef(0.12, 0.2, 0.8)
+    glTranslatef(-38.5, 0, 95)
+    glScalef(0.12, 0.30, 0.9)
     glutSolidCube(100)
     glPopMatrix()
 
     # Right Arm
     glPushMatrix()
     glColor3f(*c_body)
-    glTranslatef(38.5, 0, 85)
+    glTranslatef(38.5, 0, 95)
     if arm_throw_timer > 0:
         throw_angle = math.sin((14.0 - arm_throw_timer) / 14.0 * math.pi) * 55.0
         glRotatef(-throw_angle, 1, 0, 0)
-    glScalef(0.12, 0.2, 0.8)
+    glScalef(0.12, 0.30, 0.9)
     glutSolidCube(100)
     glPopMatrix()
 
+    # Legs & Feet
     leg_swing = math.sin(walk_anim_phase) * 20.0
+    for leg_x, swing_dir in ((-14, 1.0), (14, -1.0)):
+        glPushMatrix()
+        glTranslatef(leg_x, 0, 18)
+        glRotatef(leg_swing * swing_dir, 1, 0, 0)
 
-    glPushMatrix()
-    glTranslatef(-14, 0, 10)
-    glRotatef(leg_swing, 1, 0, 0)
-    glColor3f(*c_dark)
-    glScalef(0.14, 0.18, 0.28)
-    glutSolidCube(100)
-    glPopMatrix()
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glScalef(0.12, 0.15, 0.6)
+        glutSolidCube(100)
+        glPopMatrix()
 
-    glPushMatrix()
-    glTranslatef(-14, 8, -5)
-    glRotatef(leg_swing, 1, 0, 0)
-    glColor3f(*c_dark)
-    glScalef(0.22, 0.36, 0.10)
-    glutSolidCube(100)
-    glPopMatrix()
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(0, 10, -26)
+        glScalef(0.2, 0.35, 0.12)
+        glutSolidCube(100)
+        glPopMatrix()
 
-    glPushMatrix()
-    glTranslatef(14, 0, 10)
-    glRotatef(-leg_swing, 1, 0, 0)
-    glColor3f(*c_dark)
-    glScalef(0.14, 0.18, 0.28)
-    glutSolidCube(100)
-    glPopMatrix()
-
-    glPushMatrix()
-    glTranslatef(14, 8, -5)
-    glRotatef(-leg_swing, 1, 0, 0)
-    glColor3f(*c_dark)
-    glScalef(0.22, 0.36, 0.10)
-    glutSolidCube(100)
-    glPopMatrix()
+        glPopMatrix()
 
     glPopMatrix()
 
@@ -821,7 +827,7 @@ def draw_evil_larry_boss():
     glRotatef(-90.0, 1, 0, 0)
 
     scale_boss = 0.72
-    glScalef(scale_boss, scale_boss, scale_boss)
+    glScalef(scale_boss * 0.85, scale_boss * 0.55, scale_boss)
 
     if evil_larry_hit_flash > 0:
         c_black = (0.85, 0.15, 0.15)
@@ -1269,6 +1275,7 @@ def draw_hud():
     px, py = 25, 25
     player_pct = player_hits_left / float(MAX_PLAYER_HITS)
     draw_bar_2d(px, py, pw, ph, player_pct, (0.1, 0.9, 0.2), border_color=(0.9, 0.9, 0.9))
+    draw_text(px + pw + 12, py + 1, f"LIVES: {player_hits_left}/{MAX_PLAYER_HITS}", color=(0.1, 0.9, 0.2), font=GLUT_BITMAP_HELVETICA_18)
 
     # Active Weapon Display
     w_name = "BOMB / GRENADE" if active_weapon == "gun" else "GLOWING CATNIP"
@@ -1369,7 +1376,7 @@ def idle():
     global evil_larry_pos, evil_larry_yaw, evil_larry_shield, evil_larry_hp
     global evil_larry_shield_broken, evil_larry_hit_flash, small_pillars_destroyed
     global weapon_cooldown, is_game_over, is_level_cleared, score, meow_timer
-    global player_yaw, player_pitch, last_mouse_x, last_mouse_y, mouse_initialized
+    global player_yaw, camera_yaw, player_pitch, last_mouse_x, last_mouse_y, mouse_initialized
 
     if is_paused or is_game_over or is_level_cleared:
         glutPostRedisplay()
@@ -1386,7 +1393,7 @@ def idle():
                 dy = _pt.y - last_mouse_y
                 if dx != 0 or dy != 0:
                     mouse_sensitivity = 0.28
-                    player_yaw = (player_yaw + dx * mouse_sensitivity) % 360.0
+                    camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
                     player_pitch = max(-65.0, min(65.0, player_pitch - dy * mouse_sensitivity))
             else:
                 mouse_initialized = True
@@ -1745,11 +1752,11 @@ def setup_camera():
     glViewport(0, 0, WIN_W, WIN_H)
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
-    gluPerspective(55.0, WIN_W / float(WIN_H), 1.0, 3500.0)
+    gluPerspective(60.0, WIN_W / float(WIN_H), 1.0, 3500.0)
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
 
-    rad = math.radians(player_yaw)
+    rad = math.radians(camera_yaw)
     rad_pitch = math.radians(player_pitch)
 
     if first_person:
@@ -1764,9 +1771,9 @@ def setup_camera():
         eye_x = player_pos[0] - math.sin(rad) * cam_dist
         eye_y = player_pos[1] + cam_height
         eye_z = player_pos[2] - math.cos(rad) * cam_dist
-        center_x = eye_x + math.sin(rad) * math.cos(rad_pitch) * 100.0
-        center_y = eye_y + math.sin(rad_pitch) * 100.0
-        center_z = eye_z + math.cos(rad) * math.cos(rad_pitch) * 100.0
+        center_x = player_pos[0]
+        center_y = player_pos[1] + 10.0
+        center_z = player_pos[2]
         gluLookAt(eye_x, eye_y, eye_z, center_x, center_y, center_z, 0, 1, 0)
 
 _user32 = ctypes.windll.user32
@@ -1793,7 +1800,10 @@ def display():
     global WIN_W, WIN_H
     update_window_dimensions()
 
-    glClear(GL_COLOR_BUFFER_BIT)
+    # Depth-buffered rendering for clean, flicker-free visuals
+    glEnable(GL_DEPTH_TEST)
+    glDepthFunc(GL_LEQUAL)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glLoadIdentity()
     setup_camera()
 
@@ -1803,7 +1813,7 @@ def display():
     draw_wall_rim_accent()
     draw_ceiling_rim()
 
-    rad = math.radians(player_yaw)
+    rad = math.radians(camera_yaw)
     rad_pitch = math.radians(player_pitch)
     if first_person:
         cam_x = player_pos[0]
@@ -2010,13 +2020,7 @@ def display():
                 glPopMatrix()
             render_list.append((bp.x, bp.y, bp.z, _draw_bp))
 
-    # 3. Sort entities Back-to-Front
-    def _dist_sq(entity):
-        ex, ey, ez, fn = entity
-        return (ex - cam_x)**2 + (ey - cam_y)**2 + (ez - cam_z)**2
-
-    render_list.sort(key=_dist_sq, reverse=True)
-
+    # 3. Render all entities (depth test handles occlusion automatically)
     for ex, ey, ez, fn in render_list:
         fn()
 
@@ -2032,7 +2036,7 @@ def display():
 def keyboard_listener(key, x, y):
     global player_pos, crouching, is_jumping, y_velocity
     global first_person, is_paused, is_game_over, cheat_mode, active_weapon
-    global walk_anim_phase, is_moving, player_yaw, player_pitch
+    global walk_anim_phase, is_moving, player_yaw, camera_yaw, player_pitch
 
     try:
         raw_ch = key.decode('utf-8')
@@ -2040,7 +2044,7 @@ def keyboard_listener(key, x, y):
         raw_ch = str(key)
     ch = raw_ch.lower()
 
-    rad = math.radians(player_yaw)
+    rad = math.radians(camera_yaw)
 
     is_sprint = raw_ch in ['W', 'A', 'S', 'D']
 
@@ -2058,18 +2062,22 @@ def keyboard_listener(key, x, y):
         if ch == 'w':
             nx += math.sin(rad) * cur_speed
             nz += math.cos(rad) * cur_speed
+            player_yaw = camera_yaw
             moved = True
         elif ch == 's':
             nx -= math.sin(rad) * cur_speed
             nz -= math.cos(rad) * cur_speed
+            player_yaw = (camera_yaw + 180.0) % 360.0
             moved = True
         elif ch == 'a':
             nx += math.sin(rad + math.pi/2.0) * cur_speed
             nz += math.cos(rad + math.pi/2.0) * cur_speed
+            player_yaw = (camera_yaw + 90.0) % 360.0
             moved = True
         elif ch == 'd':
             nx += math.sin(rad - math.pi/2.0) * cur_speed
             nz += math.cos(rad - math.pi/2.0) * cur_speed
+            player_yaw = (camera_yaw - 90.0) % 360.0
             moved = True
         elif ch == 'c':
             cheat_mode = not cheat_mode
@@ -2135,7 +2143,7 @@ def mouse_listener(button, state, x, y):
 #  GAME RESET & ENTRY POINT
 # =============================================================================
 def reset_level_3():
-    global player_pos, player_yaw, player_pitch, player_hits_left
+    global player_pos, player_yaw, camera_yaw, player_pitch, player_hits_left
     global evil_larry_pos, evil_larry_yaw, evil_larry_shield, evil_larry_hp
     global evil_larry_shield_broken, evil_larry_hit_flash, small_pillars_destroyed
     global small_larrys_spawned_count, small_larrys, bombs, catnips, explosions
@@ -2146,6 +2154,7 @@ def reset_level_3():
 
     player_pos   = [0.0, 0.0, -320.0]
     player_yaw   = 0.0
+    camera_yaw   = 0.0
     player_pitch = 0.0
     player_hits_left = MAX_PLAYER_HITS
     active_weapon = "gun"
@@ -2192,7 +2201,7 @@ def reset_level_3():
 
 def main():
     glutInit(sys.argv)
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB)
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
     glutInitWindowSize(WIN_W, WIN_H)
     glutInitWindowPosition(60, 40)
     glutCreateWindow(b"9 Lives - Level 3: Boss Fight (Evil Larry)")
