@@ -71,12 +71,16 @@ WALL_HEIGHT = 9.0  # Height of perimeter walls
 # Player State & Physics (Level 3 System)
 # -----------------------------------------------------------------------------
 player_pos = [0.0, 1.0, -35.0]  # Start near south side of arena
-player_yaw = 0.0                 # Facing angle in degrees (0 = along +Z)
-player_pitch = 0.0               # Pitch angle (up/down)
+player_yaw = 0.0                 # Character facing angle (set by movement)
+camera_yaw = 0.0                 # Camera orbit angle (mouse controlled)
+player_pitch = 0.0               # Camera pitch angle (up/down)
 BASE_PLAYER_SPEED = 0.45
 player_speed = 0.45
 crouching = False
 eye_height = 1.6
+walk_cycle_phase = 0.0            # Leg-swing animation phase
+is_walking = False                # True while moving
+_idle_ticks_since_move = 0
 
 # Jump Physics
 is_jumping = False
@@ -454,38 +458,29 @@ def draw_hud():
     if cheat_mode:
         draw_text_bold(WIN_W - 220, WIN_H - 35, 'CHEAT MODE ON', color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
 
-    # 3. Header & Weapons HUD
-    hud_top_y = WIN_H - 30
-    draw_text_bold(25, hud_top_y, "9 LIVES - LEVEL 2: ZOMBIE OUTBREAK", color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
 
-    if gun_picked_up or catnip_picked_up:
-        w_name = "GRENADE LAUNCHER" if active_weapon == "gun" else "GLOWING BLUE CATNIP"
-        switch_prompt = " (Press 'F' to Switch Weapon)" if catnip_picked_up else ""
-        status_text = " [TARGET LOCKED - CLICK LMB TO FIRE!]" if is_target_locked else " [AIM & CLICK LMB TO FIRE]"
-        color_status = (1.0, 0.3, 0.3) if is_target_locked else (0.0, 0.9, 1.0)
-        weapon_str = f"Active Weapon: {w_name}{switch_prompt} | Status:{status_text}"
-        draw_text(25, hud_top_y - 25, weapon_str, color=color_status, font=GLUT_BITMAP_HELVETICA_18)
-    else:
-        draw_text(25, hud_top_y - 25, "Objective: PICK UP GRENADE LAUNCHER AT CENTER PEDESTAL!", color=(1.0, 0.35, 0.35), font=GLUT_BITMAP_HELVETICA_18)
+    # 3. (HUD text removed per user request)
 
-    draw_text(25, hud_top_y - 48, f"Zombies Defeated: {zombies_killed}/{TOTAL_ZOMBIES_COUNT} (Active: {len(zombies)})", color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
-
-    # Controls Bar at bottom
-    draw_text(25, 5, "WASD: Move | Mouse: Aim | LMB: Shoot | RMB/V: POV | Space: Jump | Ctrl: Crouch | C: Cheat | F: Switch | P: Pause | R: Reset", color=(0.7, 0.7, 0.7), font=GLUT_BITMAP_HELVETICA_12)
 
     # Catnip Spawn Objective Banner
     if catnip_spawned and not catnip_picked_up:
-        draw_text_bold(WIN_W // 2 - 250, WIN_H // 2 + 50, "★ ALL ZOMBIES CLEARED! PICK UP GLOWING BLUE CATNIP AT THE CENTER! ★", color=(0.0, 0.85, 1.0))
+        draw_text_bold(WIN_W // 2 - 250, WIN_H // 2 + 50, "* ALL ZOMBIES CLEARED! PICK UP GLOWING BLUE CATNIP AT THE CENTER! *", color=(0.0, 0.85, 1.0))
 
     # Pause Overlay
     if is_paused:
         draw_text_bold(WIN_W // 2 - 120, WIN_H // 2 + 10, "=== GAME PAUSED ===", color=(1.0, 0.9, 0.1))
         draw_text(WIN_W // 2 - 100, WIN_H // 2 - 20, "Press 'P' to Resume Game", color=(1.0, 1.0, 1.0))
 
-    # Level Victory — show a small hint; the glowing door itself is the visual reward
+    # Level Victory - exit door hint, fully centered
     if catnip_picked_up:
-        draw_text_bold(WIN_W // 2 - 200, WIN_H // 2 + 35, "★ EXIT DOOR OPEN ON THE NORTH WALL! ★", color=(0.2, 1.0, 0.9), font=GLUT_BITMAP_HELVETICA_18)
-        draw_text(WIN_W // 2 - 160, WIN_H // 2 + 10, "Walk into the glowing portal on the north wall!", color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
+        line1 = "EXIT DOOR OPEN ON THE NORTH WALL!"
+        line2 = "Walk into the glowing portal on the north wall!"
+        w1 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in line1)
+        w2 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in line2)
+        x1 = (WIN_W - w1) // 2
+        x2 = (WIN_W - w2) // 2
+        draw_text_bold(x1, WIN_H // 2 + 35, line1, color=(0.2, 1.0, 0.9), font=GLUT_BITMAP_HELVETICA_18)
+        draw_text(x2, WIN_H // 2 + 10, line2, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
 
     # Game Over Overlay
     if is_game_over:
@@ -856,57 +851,73 @@ def draw_character(cam_x=0.0, cam_z=0.0):
         for eye_x in [-16, 16]:
             glPushMatrix()
             glColor3f(*c_goggle)
-            glTranslatef(eye_x, 21, 160)
+            glTranslatef(eye_x, 31, 160)
             glScalef(0.28, 0.08, 0.35)
             glutSolidCube(100)
             glPopMatrix()
 
             glPushMatrix()
             glColor3f(*c_white)
-            glTranslatef(eye_x, 25, 160)
+            glTranslatef(eye_x, 35, 160)
             glScalef(0.18, 0.08, 0.22)
             glutSolidCube(100)
             glPopMatrix()
 
             glPushMatrix()
             glColor3f(*c_dark)
-            glTranslatef(eye_x, 29, 160)
+            glTranslatef(eye_x, 39, 160)
             glScalef(0.08, 0.05, 0.1)
             glutSolidCube(100)
             glPopMatrix()
 
             glPushMatrix()
             glColor3f(*c_dark)
-            glTranslatef(eye_x, 22, 185)
+            glTranslatef(eye_x, 32, 185)
             glScalef(0.25, 0.06, 0.06)
             glutSolidCube(100)
             glPopMatrix()
 
         glPushMatrix()
         glColor3f(*c_dark)
-        glTranslatef(0, 22, 138)
+        glTranslatef(0, 32, 138)
         glScalef(0.06, 0.06, 0.16)
         glutSolidCube(100)
         glPopMatrix()
 
         glPushMatrix()
         glColor3f(*c_dark)
-        glTranslatef(-2, 22, 122)
+        glTranslatef(-2, 32, 122)
         glScalef(0.38, 0.06, 0.06)
+        glutSolidCube(100)
+        glPopMatrix()
+
+        # Smile upturns (left & right corners)
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(-21, 32, 130)
+        glScalef(0.06, 0.06, 0.14)
+        glutSolidCube(100)
+        glPopMatrix()
+
+        glPushMatrix()
+        glColor3f(*c_dark)
+        glTranslatef(17, 32, 128)
+        glScalef(0.06, 0.06, 0.10)
         glutSolidCube(100)
         glPopMatrix()
 
     def draw_held_weapon():
         if gun_picked_up and active_weapon == "gun":
             glPushMatrix()
-            glTranslatef(38.5, 20, 70)
-            glRotatef(90, 1, 0, 0)
+            glTranslatef(38.5, 30, 70)
+            glRotatef(-90, 1, 0, 0)
+            glRotatef(180, 0, 0, 1)
             glScalef(120.0, 120.0, 120.0)
             draw_3d_gun_model()
             glPopMatrix()
         elif catnip_picked_up and active_weapon == "catnip":
             glPushMatrix()
-            glTranslatef(38.5, 20, 70)
+            glTranslatef(38.5, 30, 70)
             glScalef(140.0, 140.0, 140.0)
             draw_3d_catnip_model()
             glPopMatrix()
@@ -919,7 +930,7 @@ def draw_character(cam_x=0.0, cam_z=0.0):
     glPushMatrix()
     glColor3f(*c_body)
     glTranslatef(0, 0, 120)
-    glScalef(0.65, 0.4, 1.8)
+    glScalef(0.65, 0.60, 1.8)
     glutSolidCube(100)
     glPopMatrix()
 
@@ -927,31 +938,41 @@ def draw_character(cam_x=0.0, cam_z=0.0):
     glPushMatrix()
     glColor3f(*c_body)
     glTranslatef(-38.5, 0, 95)
-    glScalef(0.12, 0.2, 0.9)
+    glScalef(0.12, 0.30, 0.9)
     glutSolidCube(100)
     glPopMatrix()
 
     glPushMatrix()
     glColor3f(*c_body)
     glTranslatef(38.5, 0, 95)
-    glScalef(0.12, 0.2, 0.9)
+    glScalef(0.12, 0.30, 0.9)
     glutSolidCube(100)
     glPopMatrix()
 
     # Legs
-    for leg_x in [-14, 14]:
+    leg_swing_amplitude = 28.0
+    for leg_x, phase_offset in ((-14, 0.0), (14, math.pi)):
+        swing_angle = 0.0
+        if is_walking:
+            swing_angle = math.sin(walk_cycle_phase + phase_offset) * leg_swing_amplitude
+
+        glPushMatrix()
+        glTranslatef(leg_x, 0, 18)
+        glRotatef(swing_angle, 1, 0, 0)
+
         glPushMatrix()
         glColor3f(*c_dark)
-        glTranslatef(leg_x, 0, 18)
         glScalef(0.12, 0.15, 0.6)
         glutSolidCube(100)
         glPopMatrix()
 
         glPushMatrix()
         glColor3f(*c_dark)
-        glTranslatef(leg_x, 10, -8)
+        glTranslatef(0, 10, -26)
         glScalef(0.2, 0.35, 0.12)
         glutSolidCube(100)
+        glPopMatrix()
+
         glPopMatrix()
 
     if is_front:
@@ -1372,7 +1393,7 @@ def setup_camera():
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
 
-    rad_yaw = math.radians(player_yaw)
+    rad_yaw = math.radians(camera_yaw)
     rad_pitch = math.radians(player_pitch)
     curr_eye_h = 0.8 if crouching else eye_height
 
@@ -1389,9 +1410,9 @@ def setup_camera():
         eye_x = player_pos[0] - math.sin(rad_yaw) * cam_dist
         eye_y = player_pos[1] + cam_height
         eye_z = player_pos[2] - math.cos(rad_yaw) * cam_dist
-        center_x = eye_x + math.sin(rad_yaw) * math.cos(rad_pitch) * 100.0
-        center_y = eye_y + math.sin(rad_pitch) * 100.0
-        center_z = eye_z + math.cos(rad_yaw) * math.cos(rad_pitch) * 100.0
+        center_x = player_pos[0]
+        center_y = player_pos[1] + 1.2
+        center_z = player_pos[2]
         gluLookAt(eye_x, eye_y, eye_z, center_x, center_y, center_z, 0.0, 1.0, 0.0)
         return eye_x, eye_y, eye_z
 
@@ -1422,8 +1443,10 @@ def display():
     global WIN_W, WIN_H
     update_window_dimensions()
 
-    # Painter's Algorithm: colour buffer only (no depth buffer)
-    glClear(GL_COLOR_BUFFER_BIT)
+    # Depth-buffered rendering for clean, flicker-free visuals
+    glEnable(GL_DEPTH_TEST)
+    glDepthFunc(GL_LEQUAL)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glLoadIdentity()
     cam_x, cam_y, cam_z = setup_camera()
 
@@ -1487,13 +1510,7 @@ def display():
             draw_single_grenade(g)
         render_list.append((g['pos'][0], g['pos'][1], g['pos'][2], _draw_g))
 
-    # 3. Sort all entities Back-to-Front (Painter's Algorithm)
-    def _dist_sq(entity):
-        ex, ey, ez, fn = entity
-        return (ex - cam_x)**2 + (ey - cam_y)**2 + (ez - cam_z)**2
-
-    render_list.sort(key=_dist_sq, reverse=True)
-
+    # 3. Render all entities (depth test handles occlusion automatically)
     for ex, ey, ez, fn in render_list:
         fn()
 
@@ -1510,11 +1527,18 @@ def idle():
     global player_pos, is_jumping, y_velocity, gun_rotation_angle, catnip_rotation_angle, door_glow_angle
     global gun_picked_up, catnip_picked_up, fire_cooldown, zombie_spawn_timer
     global player_hits_left, player_invulnerable_timer, is_game_over
-    global player_yaw, player_pitch, last_mouse_x, last_mouse_y, mouse_initialized
+    global player_yaw, camera_yaw, player_pitch, last_mouse_x, last_mouse_y, mouse_initialized
 
     if is_paused or is_game_over:
         glutPostRedisplay()
         return
+
+    # Update leg swing idle timer
+    global _idle_ticks_since_move, is_walking
+    if is_walking:
+        _idle_ticks_since_move += 1
+        if _idle_ticks_since_move > 6:
+            is_walking = False
 
     # Update Mouse Movement Aiming (Level 3 Continuous Cursor Tracking)
     try:
@@ -1527,7 +1551,7 @@ def idle():
                 dy = _pt.y - last_mouse_y
                 if dx != 0 or dy != 0:
                     mouse_sensitivity = 0.28
-                    player_yaw = (player_yaw + dx * mouse_sensitivity) % 360.0
+                    camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
                     player_pitch = max(-65.0, min(65.0, player_pitch - dy * mouse_sensitivity))
             else:
                 mouse_initialized = True
@@ -1622,14 +1646,15 @@ def mouse_listener(button, state, x, y):
 def keyboard_listener(key, x, y):
     global player_pos, is_jumping, y_velocity
     global first_person, is_paused, is_game_over, cheat_mode, active_weapon
-    global player_yaw, player_pitch
+    global player_yaw, camera_yaw, player_pitch
+    global walk_cycle_phase, is_walking, _idle_ticks_since_move
 
     try:
         ch = key.decode('utf-8').lower()
     except:
         ch = str(key).lower()
 
-    rad = math.radians(player_yaw)
+    rad = math.radians(camera_yaw)
 
     if not is_paused and not is_game_over:
         next_x = player_pos[0]
@@ -1638,20 +1663,29 @@ def keyboard_listener(key, x, y):
         if ch == 'w':
             next_x += math.sin(rad) * player_speed
             next_z += math.cos(rad) * player_speed
+            player_yaw = camera_yaw
         elif ch == 's':
             next_x -= math.sin(rad) * player_speed
             next_z -= math.cos(rad) * player_speed
+            player_yaw = (camera_yaw + 180.0) % 360.0
         elif ch == 'a':
             next_x += math.sin(rad + math.pi / 2.0) * player_speed
             next_z += math.cos(rad + math.pi / 2.0) * player_speed
+            player_yaw = (camera_yaw + 90.0) % 360.0
         elif ch == 'd':
             next_x += math.sin(rad - math.pi / 2.0) * player_speed
             next_z += math.cos(rad - math.pi / 2.0) * player_speed
+            player_yaw = (camera_yaw - 90.0) % 360.0
 
         curr_y = player_pos[1]
         res_x, res_z = resolve_entity_crate_collision(next_x, next_z, radius=0.9, y_height=curr_y)
         player_pos[0] = res_x
         player_pos[2] = res_z
+
+        if ch in ['w', 's', 'a', 'd']:
+            walk_cycle_phase += 0.35
+            is_walking = True
+            _idle_ticks_since_move = 0
 
         if ch == ' ' or key == b' ':
             if not is_jumping:
@@ -1702,17 +1736,22 @@ def special_key_listener(key, x, y):
         glutPostRedisplay()
 
 def reset_arena():
-    global player_pos, player_yaw, player_pitch, player_hits_left
+    global player_pos, player_yaw, camera_yaw, player_pitch, player_hits_left
     global is_jumping, crouching, gun_picked_up, catnip_spawned, catnip_picked_up, active_weapon
     global score, zombies_killed, zombies_spawned, grenades, death_effects, zombies
     global is_game_over, is_level_cleared, is_paused, is_target_locked
 
     player_pos = [0.0, 1.0, -35.0]
     player_yaw = 0.0
+    camera_yaw = 0.0
     player_pitch = 0.0
     player_hits_left = MAX_PLAYER_HITS
     is_jumping = False
     crouching = False
+    global walk_cycle_phase, is_walking, _idle_ticks_since_move
+    walk_cycle_phase = 0.0
+    is_walking = False
+    _idle_ticks_since_move = 0
 
     gun_picked_up = False
     catnip_spawned = False
@@ -1739,7 +1778,7 @@ def reset_arena():
 # -----------------------------------------------------------------------------
 def main():
     glutInit(sys.argv)
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB)   # No depth buffer — using Painter's Algorithm
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
     glutInitWindowSize(WIN_W, WIN_H)
     glutInitWindowPosition(100, 50)
     glutCreateWindow(WINDOW_TITLE)
