@@ -1,54 +1,3 @@
-"""
-===============================================================================
-"9 Lives" - Level 2 Arena: Combat, Projectiles & Tactical Crates
-===============================================================================
-Main Character: "tung tung tung sahur"
-Enemy Character: Custom 3D Zombie (exact design from zombie.py)
-Course: CSE423 Computer Graphics Project (Strict Lab 1, 1.2, 2, 3 Functions Only)
-
-Features in this File:
-1. Level 3 Camera Movement System:
-   - Smooth continuous mouse aiming (yaw & pitch tracking via cursor)
-   - Consistent 3D look-at vector in both 1st Person POV and 3rd Person Follow
-   - Right Mouse Click / 'V' key toggles camera POV
-   - 'J' / 'L' keys for manual Yaw turning, 'I' / 'K' keys for Pitch looking
-2. Manual LMB Shooting (No Auto-Shooting):
-   - Left Mouse Click (LMB) launches Grenade / Catnip towards aim direction
-   - Aiming at a zombie turns crosshair red as a target indicator
-3. Level 3 Health Bar & HUD:
-   - 9 Cat Lives (MAX_PLAYER_HITS = 9) with green health bar at bottom-left corner
-   - 'CHEAT MODE ON' bold banner at top-right corner when cheat mode is enabled
-4. Full Crate Obstacle & Line-of-Sight (LOS) Physics:
-   - Player and Zombies cannot walk through crates (smooth sliding around obstacles)
-   - Player and Zombies cannot see or shoot through crates (LOS raycasting)
-   - Grenades explode on crate contact, and crates block blast penetration
-5. Slow Grenade Launcher (Unlimited Ammo):
-   - Arced slow-motion grenade projectiles with one-shot kills on zombies
-   - Zombies turn bright ORANGE on hit and leave a lingering RED GLOW aura on death
-6. Glowing Blue Catnip Pickup (Unlocked after 10 Zombies Defeated):
-   - Spawns at arena center after defeating 10 zombies
-   - Pressing 'F' toggles active weapon between Gun (Grenade Launcher) and Catnip
-7. Pause & Controls:
-   - Pressing 'P' pauses / unpauses the game
-   - Pressing 'C' toggles Cheat Mode (unlimited lives & invulnerability)
-   - Pressing 'CTRL' toggles crouching (drops camera eye level to 0.8)
-
-Controls:
-- W / S                 : Move Forward / Backward
-- A / D                 : Strafe Left / Right
-- Mouse Movement        : Aim Camera Direction (Smooth Look-At - Level 3 style)
-- Left Mouse Click (LMB): Shoot Grenade Launcher / Catnip
-- Right Mouse Click / V : Toggle Camera View (1st Person POV <-> 3rd Person Follow)
-- Spacebar              : Jump
-- Left / Right Ctrl     : Crouch (drops camera & hitbox to 0.8)
-- C                     : Toggle Cheat Mode (9 Lives Invulnerability)
-- F                     : Switch Active Weapon (Gun <-> Catnip)
-- P                     : Toggle Game Pause On/Off
-- R                     : Reset Arena / Restart
-- ESC                   : Exit Game
-===============================================================================
-"""
-
 import math
 import random
 import sys
@@ -58,62 +7,56 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
 
-# -----------------------------------------------------------------------------
-# Global Configurations & Window Settings
-# -----------------------------------------------------------------------------
+# Window / arena settings
 WIN_W = 1000
 WIN_H = 750
 WINDOW_TITLE = b"9 Lives"
 
-ARENA_SIZE = 60.0  # Half-width of arena (bounds: -60 to +60 in X and Z)
-WALL_HEIGHT = 9.0  # Height of perimeter walls
+ARENA_SIZE = 60.0  # Half-width of arena (X and Z: -60 to +60)
+WALL_HEIGHT = 9.0
 
-# -----------------------------------------------------------------------------
-# Player State & Physics (Level 3 System)
-# -----------------------------------------------------------------------------
-player_pos = [0.0, 0.0, -35.0]  # Start near south side of arena
-player_yaw = 0.0                 # Character facing angle (set by movement)
-camera_yaw = 0.0                 # Camera orbit angle (mouse controlled)
-player_pitch = 0.0               # Camera pitch angle (up/down)
+# Player state
+player_pos = [0.0, 0.0, -35.0]
+player_yaw = 0.0
+camera_yaw = 0.0
+player_pitch = 0.0
 BASE_PLAYER_SPEED = 0.45
 player_speed = 0.45
 crouching = False
 eye_height = 1.6
-walk_cycle_phase = 0.0            # Leg-swing animation phase
-is_walking = False                # True while moving
+walk_cycle_phase = 0.0
+is_walking = False
 _idle_ticks_since_move = 0
 
-# Jump Physics
+# Jump physics
 is_jumping = False
 y_velocity = 0.0
 gravity = -0.016
 jump_strength = 0.36
 ground_y = 0.0
 
-# 9 Lives Health System (Level 3 Style)
+# Health / game state (9 lives system)
 MAX_PLAYER_HITS = 9
 player_hits_left = 9
 player_invulnerable_timer = 0
-cheat_mode = False               # Toggled by 'C' key
+cheat_mode = False
 is_game_over = False
 is_level_cleared = False
 is_paused = False
 
-# Mouse Look Tracking (Level 3 Cursor System)
+# Mouse look tracking
 last_mouse_x = 0
 last_mouse_y = 0
 mouse_initialized = False
 is_cursor_hidden = False
 
-# Camera Settings
+# Camera settings
 first_person = False
 cam_dist = 6.5
 cam_height = 3.8
 
-# -----------------------------------------------------------------------------
-# Weapons: Gun (Grenade Launcher) & Catnip
-# -----------------------------------------------------------------------------
-gun_pickup_pos = [0.0, 1.2, 0.0]  # Center of the arena
+# Weapons
+gun_pickup_pos = [0.0, 1.2, 0.0]
 gun_picked_up = False
 gun_rotation_angle = 0.0
 
@@ -121,33 +64,31 @@ catnip_spawned = False
 catnip_picked_up = False
 catnip_pickup_pos = [0.0, 1.2, 0.0]
 catnip_rotation_angle = 0.0
-door_glow_angle = 0.0          # Drives pulsing glow on the exit door
+door_glow_angle = 0.0  # drives pulsing glow on the exit door
 
-active_weapon = "gun"             # "gun" or "catnip", toggled with 'F' key
+active_weapon = "gun"  # "gun" or "catnip", toggled with 'F'
 fire_cooldown = 0
 score = 0
 zombies_killed = 0
 is_target_locked = False
 
-# Active Grenade Projectiles: list of dicts {pos: [x,y,z], vel: [vx,vy,vz], rot: float, life: int, is_catnip: bool}
+# Active grenade projectiles: {pos, vel, rot, life, is_catnip}
 grenades = []
-GRENADE_SPEED = 0.38              # Visibly slow flight speed to clearly watch it travel
-GRENADE_GRAVITY = -0.0055         # Gentle gravitational drop
+GRENADE_SPEED = 0.38       # slow flight for visible travel
+GRENADE_GRAVITY = -0.0055  # gentle gravitational arc
 GRENADE_MAX_LIFE = 220
 
-# Red Glow Death Effects: list of dicts {pos: [x,y,z], timer: int, max_timer: int}
+# Death effect auras: {pos, timer, max_timer}
 death_effects = []
 
-# -----------------------------------------------------------------------------
-# Zombie System (Exactly 10 Total Spawns, Extra Slow Speed)
-# -----------------------------------------------------------------------------
+# Zombie system
 TOTAL_ZOMBIES_COUNT = 10
 zombies_spawned = 0
 zombies = []
-MAX_ACTIVE_ZOMBIES = 4       # Number of simultaneous zombies in arena
-ZOMBIE_SPAWN_INTERVAL = 120  # frames between spawns (~2 seconds)
+MAX_ACTIVE_ZOMBIES = 4
+ZOMBIE_SPAWN_INTERVAL = 120  # frames between spawns
 zombie_spawn_timer = 0
-zombie_base_speed = 0.020    # Extra slow shambling speed
+zombie_base_speed = 0.020
 
 # -----------------------------------------------------------------------------
 # Crate Obstacles Data & Bounding Boxes
@@ -202,37 +143,35 @@ for c in CRATE_RAW_DATA:
         "angle": c["angle"]
     })
 
-# -----------------------------------------------------------------------------
-# Color Palettes
-# -----------------------------------------------------------------------------
-COLOR_FLOOR = (0.08, 0.09, 0.13)         # Solid Dark Slate Floor
-COLOR_FLOOR_SIDE = (0.04, 0.04, 0.06)    # Floor Base Shading
-COLOR_WALL = (0.24, 0.13, 0.16)          # Dark Crimson Obsidian Wall
-COLOR_WALL_SIDE = (0.16, 0.08, 0.10)     # Shaded Wall Side
-COLOR_WALL_TRIM = (0.45, 0.15, 0.20)     # Wall Top Trim Accent
-COLOR_PILLAR = (0.12, 0.12, 0.15)        # Dark Charcoal Pillars
-COLOR_PILLAR_GLOW = (0.9, 0.2, 0.2)      # Glowing Crimson Pillar Beacon
+# Color palette
+COLOR_FLOOR = (0.08, 0.09, 0.13)
+COLOR_FLOOR_SIDE = (0.04, 0.04, 0.06)
+COLOR_WALL = (0.24, 0.13, 0.16)
+COLOR_WALL_SIDE = (0.16, 0.08, 0.10)
+COLOR_WALL_TRIM = (0.45, 0.15, 0.20)
+COLOR_PILLAR = (0.12, 0.12, 0.15)
+COLOR_PILLAR_GLOW = (0.9, 0.2, 0.2)
 
-COLOR_CRATE_WOOD = (0.46, 0.28, 0.16)    # Warm Brown Wooden Planks
-COLOR_CRATE_TRIM = (0.28, 0.16, 0.09)    # Dark Wood Border Trims
+COLOR_CRATE_WOOD = (0.46, 0.28, 0.16)
+COLOR_CRATE_TRIM = (0.28, 0.16, 0.09)
 
 COLOR_PEDESTAL = (0.15, 0.18, 0.25)
-COLOR_PEDESTAL_RING = (0.0, 0.85, 1.0)   # Glowing Cyan Beacon Ring
-COLOR_GUN_BODY = (0.20, 0.22, 0.25)      # Dark Steel Gun
-COLOR_GUN_ACCENT = (1.0, 0.60, 0.0)      # Neon Orange Barrel Accent
-COLOR_GRENADE = (0.18, 0.40, 0.20)       # Dark Military Green Nade
-COLOR_GRENADE_FUSE = (1.0, 0.45, 0.0)    # Glowing Orange Fuse Tip
+COLOR_PEDESTAL_RING = (0.0, 0.85, 1.0)
+COLOR_GUN_BODY = (0.20, 0.22, 0.25)
+COLOR_GUN_ACCENT = (1.0, 0.60, 0.0)
+COLOR_GRENADE = (0.18, 0.40, 0.20)
+COLOR_GRENADE_FUSE = (1.0, 0.45, 0.0)
 
-COLOR_CATNIP_BLUE = (0.0, 0.65, 1.0)     # Glowing Blue Catnip Herb
-COLOR_CATNIP_AURA = (0.2, 0.85, 1.0)     # Cyan-Blue Glow
+COLOR_CATNIP_BLUE = (0.0, 0.65, 1.0)
+COLOR_CATNIP_AURA = (0.2, 0.85, 1.0)
 
-# Character Palette ("tung tung tung sahur")
+# Character palette
 c_body = (222/255, 137/255, 34/255)
 c_dark = (117/255, 76/255, 18/255)
 c_goggle = (229/255, 230/255, 230/255)
 c_white = (1.0, 1.0, 1.0)
 
-# Exact Zombie Palette from zombie.py
+# Zombie palette (from zombie.py)
 c_z_skin = (112/255, 168/255, 59/255)
 c_z_hair = (46/255, 94/255, 33/255)
 c_z_eye_nose = (18/255, 18/255, 18/255)

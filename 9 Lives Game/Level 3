@@ -1,27 +1,3 @@
-"""
-===============================================================================
-"9 Lives" - Level 3: The Boss Fight (Evil Larry & Tung Tung Tung Sahur)
-===============================================================================
-Course: CSE423 Computer Graphics Project
-STRICTLY ALLOWED OPENGL FUNCTIONS ONLY (From LAB 01, LAB 1.2, LAB 02, LAB 03)
-
-Features:
-- Main Character: 'tung tung tung sahur' (9 Lives)
-- Boss: 'Evil Larry' with 2-Layer Health Bar (Top: Red HP, Bottom: Ash Shield)
-- Minions: 'Small Larry'
-  * Extra slow movement speed (matched with Zombie speed)
-  * When Boss Shield breaks, ALL remaining Small Larries immediately disappear!
-- Weapons:
-  * Bomb / Grenade: Direct damage to boss and minions (LMB Click)
-  * Glowing Blue Catnip: Throw at Small Larries to charm them!
-- Charmed Small Larries run directly to Big Larry and destroy his shield in sections!
-- Pause / Resume on 'P' key
-- Weapon Switcher on 'F' key (Bomb <-> Catnip)
-- Left Mouse Click (LMB): Fire active weapon (Bomb or Catnip)
-- Right Mouse Click (RMB) / 'V': Toggle Camera View (1st Person <-> 3rd Person Follow)
-===============================================================================
-"""
-
 import sys
 import math
 import time
@@ -31,30 +7,26 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
 
-# =============================================================================
-#  WINDOW & ARENA CONSTANTS
-# =============================================================================
+# Window & arena constants
 WIN_W, WIN_H = 1000, 750
 ARENA_RADIUS = 550.0
 WALL_HEIGHT  = 110.0
 
-# Inner ring - SMALL plain ash-colored cylinder pillars
+# Inner ring pillars
 INNER_RING_R = 200.0
 INNER_COUNT  = 8
 INNER_BASE_R = 8.0
 INNER_TOP_R  = 8.0
 INNER_HEIGHT = 48.0
 
-# Outer ring - LARGE imposing decorated pillars
+# Outer ring pillars
 OUTER_RING_R = 400.0
 OUTER_COUNT  = 8
 OUTER_BASE_R = 16.0
 OUTER_TOP_R  = 12.0
 OUTER_HEIGHT = 100.0
 
-# =============================================================================
-#  PLAYER STATE (Tung Tung Tung Sahur)
-# =============================================================================
+# Player state
 player_pos   = [0.0, 0.0, -320.0]
 player_yaw   = 0.0
 camera_yaw   = 0.0
