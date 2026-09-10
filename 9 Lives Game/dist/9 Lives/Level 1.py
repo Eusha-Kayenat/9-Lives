@@ -35,6 +35,7 @@ Controls:
 import math
 import random
 import sys
+import time
 import ctypes
 from OpenGL.GL import *
 from OpenGL.GLUT import *
@@ -45,7 +46,7 @@ from OpenGL.GLU import *
 # -----------------------------------------------------------------------------
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 750
-WINDOW_TITLE = b"9 Lives - Level 1: Connected Backrooms Maze Arena ('tung tung tung sahur')"
+WINDOW_TITLE = b"9 Lives"
 
 # -----------------------------------------------------------------------------
 # Player & Physics State
@@ -93,8 +94,16 @@ game_paused = False
 # Lava Pit & Hazard 3-Strike Tracking
 consecutive_lava_falls = 0
 lava_alert_timer = 0           # frames to show alert message
+lava_alert_expiry = 0.0        # real-time timestamp expiry for exact 2-second alert display
 hazard_alert_text = "Fell into the lava!"
 game_over = False
+
+def trigger_hazard_alert(text):
+    """Triggers hazard warning text with guaranteed 1.0-second real-time duration."""
+    global hazard_alert_text, lava_alert_expiry, lava_alert_timer
+    hazard_alert_text = text
+    lava_alert_expiry = time.time() + 1.0
+    lava_alert_timer = 60
 
 # Moving Walls Hazard Tracking (Zone 5)
 consecutive_wall_hits = 0
@@ -212,6 +221,10 @@ def draw_text(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_
     glMatrixMode(GL_PROJECTION)
     glPopMatrix()
     glMatrixMode(GL_MODELVIEW)
+
+def draw_text_bold(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18):
+    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1), (0, 0)]:
+        draw_text(x + dx, y + dy, text_str, color, font)
 
 def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(0.9, 0.9, 0.9)):
     """
@@ -505,12 +518,12 @@ MAZE_WALL_SEGMENTS = [
     (5.8, 3.5, 125.6, 80.4, 7.0, 0.8),         # North Wall of Corridor B
     (-5.8, 3.5, 114.4, 80.4, 7.0, 0.8),        # South Wall of Corridor B
     (-45.6, 3.5, 147.5, 0.8, 7.0, 67.0),       # West Wall of Disappearing Floor
-    (-34.4, 3.5, 147.2, 0.8, 7.0, 56.0),       # East Wall of Disappearing Floor
+    (-34.4, 3.5, 150.0, 0.8, 7.0, 49.6),       # East Wall of Disappearing Floor
     (-45.6, 3.5, 180.0, 0.8, 7.0, 12.0),       # West end cap of Junction C
     (-15.8, 3.5, 185.6, 60.4, 7.0, 0.8),       # North Wall of Junction C
     (-4.5, 3.5, 174.4, 61.0, 7.0, 0.8),        # South Wall of Junction C
     (14.4, 3.5, 215.5, 0.8, 7.0, 61.0),        # West Wall of Laser Gauntlet
-    (25.6, 3.5, 210.0, 0.8, 7.0, 66.0),        # East Wall of Laser Gauntlet
+    (25.6, 3.5, 204.6, 0.8, 7.0, 60.4),        # East Wall of Laser Gauntlet
     (50.8, 3.5, 234.4, 50.4, 7.0, 0.8),        # South Wall of Junction D
     (39.8, 3.5, 245.6, 51.6, 7.0, 0.8),        # North Wall of Junction D
     (64.4, 3.5, 292.8, 0.8, 7.0, 95.2),        # West Wall of Exit Chamber
@@ -1041,7 +1054,7 @@ def draw_story_screen():
     draw_rect_border_2d(px1 + 4, py1 + 4, px2 - 4, py2 - 4, (1.0, 0.7, 0.2), line_width=1.0)
 
     # 3. Header Title (Fiery Orange / Amber Gold)
-    title_str = "★  9 LIVES: EVIL CAT WORLD  ★"
+    title_str = "9 Lives"
     t_w = len(title_str) * 9.2
     t_start_x = (WINDOW_WIDTH - t_w) // 2
     title_y = py2 - 48
@@ -1317,7 +1330,7 @@ def display():
     for ex, ey, ez, fn in render_list:
         fn()
 
-    # 4. Clean 2D HUD Overlay (Top-Left Corner) - Rendered over 3D scene
+    # 4. Clean 2D HUD Overlay (Bottom-Left Corner) - Matching Level 2 and Level 3
     remaining_lives = max(0, 9 - consecutive_lava_falls)
     player_pct = remaining_lives / 9.0
 
@@ -1329,20 +1342,36 @@ def display():
         bar_color = (1.0, 0.15, 0.15)  # Danger Red
 
     pw, ph = 220, 16
-    px, py = 15, WINDOW_HEIGHT - 35
+    px, py = 25, 45
     draw_bar_2d(px, py, pw, ph, player_pct, bar_color, border_color=(0.9, 0.9, 0.9))
-    draw_text(px + pw + 12, py + 1, f"Lives ({remaining_lives}/9)")
+    draw_text(px + pw + 12, py + 1, f"LIVES: {remaining_lives}/9", color=bar_color, font=GLUT_BITMAP_HELVETICA_18)
 
-    draw_text(15, WINDOW_HEIGHT - 65, f"Crouch: {'ON' if crouching else 'OFF'}")
+    draw_text(25, 68, f"Crouch: {'ON' if crouching else 'OFF'}")
     if cheat_mode:
-        draw_text(15, WINDOW_HEIGHT - 90, "Cheat Mode Activated", color=(1.0, 0.15, 0.15))
+        draw_text_bold(WINDOW_WIDTH - 220, WINDOW_HEIGHT - 35, 'CHEAT MODE ON', color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
 
     if game_over:
-        draw_text(15, WINDOW_HEIGHT - 120, "GAME OVER! All 9 Lifelines lost. Press 'R' to restart.")
+        msg = "GAME OVER! All 9 Lifelines lost. Press 'R' to restart."
+        sw = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in msg)
+        draw_text_bold((WINDOW_WIDTH - sw) // 2, WINDOW_HEIGHT // 2, msg, color=(1.0, 0.2, 0.2))
     elif game_paused:
-        draw_text(15, WINDOW_HEIGHT - 120, "GAME PAUSED (Press 'P' to Resume)")
-    elif lava_alert_timer > 0:
-        draw_text(15, WINDOW_HEIGHT - 120, f"ALERT: {hazard_alert_text}")
+        msg = "=== GAME PAUSED ==="
+        sw = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in msg)
+        draw_text_bold((WINDOW_WIDTH - sw) // 2, WINDOW_HEIGHT // 2 + 10, msg, color=(1.0, 0.9, 0.1))
+        msg2 = "Press 'P' to Resume Game"
+        sw2 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in msg2)
+        draw_text((WINDOW_WIDTH - sw2) // 2, WINDOW_HEIGHT // 2 - 20, msg2, color=(1.0, 1.0, 1.0))
+    elif (time.time() < lava_alert_expiry) or (lava_alert_timer > 0):
+        alert_str = f"ALERT: {hazard_alert_text}"
+        sw = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in alert_str)
+        cx = (WINDOW_WIDTH - sw) // 2
+        cy = WINDOW_HEIGHT // 2 + 50
+        # High-visibility bold warning: dark shadow outline + bold vibrant golden-amber
+        for ox in (-2, -1, 0, 1, 2):
+            for oy in (-2, -1, 0, 1, 2):
+                if ox != 0 or oy != 0:
+                    draw_text(cx + ox, cy + oy, alert_str, color=(0.0, 0.0, 0.0), font=GLUT_BITMAP_HELVETICA_18)
+        draw_text_bold(cx, cy, alert_str, color=(1.0, 0.88, 0.0), font=GLUT_BITMAP_HELVETICA_18)
 
     draw_text(15, 20, "WASD: Move | Mouse: Orbit Camera | Space: Jump | Ctrl/X: Crouch | V/RMB: 1st/3rd Person | P: Pause | C: God Mode | R: Reset", font=GLUT_BITMAP_HELVETICA_12)
 
@@ -1417,8 +1446,7 @@ def check_laser_collisions():
             # If the player is NOT dodging (neither crouching nor jumping), the laser hits!
             if not player_is_dodging:
                 consecutive_lava_falls += 1
-                hazard_alert_text = "Hit by Laser! (Crouch 'CTRL' or Jump 'SPACE' to dodge)"
-                lava_alert_timer = 180
+                trigger_hazard_alert("Hit by Laser! (Crouch 'CTRL' or Jump 'SPACE' to dodge)")
                 if consecutive_lava_falls >= 9:
                     game_over = True
                 # Respawn at Laser Gauntlet entrance
@@ -1472,8 +1500,7 @@ def check_moving_wall_collisions():
                 # --- CRUSH HIT ---
                 consecutive_wall_hits += 1
                 consecutive_lava_falls += 1
-                hazard_alert_text = "Crushed by Moving Walls!"
-                lava_alert_timer = 180
+                trigger_hazard_alert("Crushed by Moving Walls!")
                 wall_invincibility_timer = 60  # ~1 second of invincibility blink
 
                 if consecutive_lava_falls >= 9:
@@ -1527,8 +1554,7 @@ def check_disappearing_floor():
     if not is_on_active_disappearing_tile(px, pz):
         # Stepped on a vanished tile OR into the void gap!
         consecutive_lava_falls += 1
-        hazard_alert_text = "Fell into the void!"
-        lava_alert_timer = 180
+        trigger_hazard_alert("Fell into the void!")
         if consecutive_lava_falls >= 9:
             game_over = True
         # Respawn safely on the solid entry walkway before the tile gap
@@ -1565,8 +1591,7 @@ def update_player_physics():
                 if not cheat_mode:
                     # Fell into lava — penalise
                     consecutive_lava_falls += 1
-                    hazard_alert_text = "Fell into the lava!"
-                    lava_alert_timer = 180          # show alert ~3 s at 60 fps
+                    trigger_hazard_alert("Fell into the lava!")
                     if consecutive_lava_falls >= 9:
                         game_over = True
                     # Respawn at lava section entry
@@ -1586,8 +1611,7 @@ def update_player_physics():
         elif in_lava_pit():
             if not cheat_mode:
                 consecutive_lava_falls += 1
-                hazard_alert_text = "Fell into the lava!"
-                lava_alert_timer = 180
+                trigger_hazard_alert("Fell into the lava!")
                 if consecutive_lava_falls >= 9:
                     game_over = True
                 player_pos = [40.0, 0.0, 65.0]
@@ -1657,8 +1681,12 @@ def idle():
                 dy = _pt.y - win_cy
                 if dx != 0 or dy != 0:
                     mouse_sensitivity = 0.20
-                    camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
-                    player_pitch = max(-25.0, min(75.0, player_pitch + dy * mouse_sensitivity))
+                    if first_person:
+                        camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
+                        player_pitch = max(-65.0, min(65.0, player_pitch - dy * mouse_sensitivity))
+                    else:
+                        camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
+                        player_pitch = max(-25.0, min(75.0, player_pitch + dy * mouse_sensitivity))
                     ctypes.windll.user32.SetCursorPos(win_cx, win_cy)
             else:
                 if is_cursor_hidden:
@@ -1716,12 +1744,14 @@ def is_valid_walkway_position(x, z):
     Returns True if (x, z) is inside any valid playable maze corridor segment.
     Prevents player from phasing through walls into outside void space.
     """
-    # 1. Start Hub (X: -5.5 -> +5.5, Z: 0.0 -> 54.4)
-    if -5.5 <= x <= 5.5 and 0.0 <= z <= 54.4:
+    # 1. Start Hub (X: -5.5 -> +5.5, Z: 0.0 -> 56.0)
+    if -5.5 <= x <= 5.5 and 0.0 <= z <= 56.0:
         return True
 
-    # 2. Junction A (X: -5.5 -> 45.0, Z: 54.8 -> 65.2)
-    if -5.5 <= x <= 45.0 and 54.8 <= z <= 65.2:
+    # 2. Junction A (X: -5.5 -> 45.0, Z: 54.0 -> 65.2)
+    if -5.5 <= x <= 5.5 and 54.0 <= z <= 65.2:
+        return True
+    if 5.5 < x <= 45.0 and 54.8 <= z <= 65.2:
         return True
 
     # 3. Hazard Lava Pit Corridor (X: 34.8 -> 45.2, Z: 54.8 -> 125.2)
@@ -1755,13 +1785,37 @@ def is_valid_walkway_position(x, z):
     return False
 
 PLAYER_RADIUS = 0.42  # Collision radius to prevent phasing through walls
-PILLAR_HALF_SIZE = 0.70  # Half-width of 1.4 unit wide square pillars
+PILLAR_HALF_SIZE = 0.75  # Half-width of 1.4 unit wide square pillars
 
 def collides_with_pillar(x, z, r=PLAYER_RADIUS):
     """Returns True if (x, z) with radius r intersects any solid pillar."""
     min_dist = PILLAR_HALF_SIZE + r
     for px, pz in PILLAR_COORDS:
         if abs(x - px) < min_dist and abs(z - pz) < min_dist:
+            return True
+    return False
+
+def collides_with_wall(x, z, r=PLAYER_RADIUS):
+    """Returns True if (x, z) with radius r intersects any solid maze wall segment."""
+    for cx, cy, cz, sx, sy, sz in MAZE_WALL_SEGMENTS:
+        hx = sx / 2.0 + r
+        hz = sz / 2.0 + r
+        if abs(x - cx) < hx and abs(z - cz) < hz:
+            return True
+    return False
+
+BASALT_LEDGE_BOXES = [
+    (40.0 + sign_x * (5.6 - 0.6), float(z_side) + 3.0, 1.3, 5.6)
+    for z_side in range(int(65.6), int(114.4), 6)
+    for sign_x in [-1.0, 1.0]
+]
+
+def collides_with_ledge(x, z, r=PLAYER_RADIUS):
+    """Returns True if (x, z) with radius r intersects any solid basalt side ledge."""
+    for lx, lz, sx, sz in BASALT_LEDGE_BOXES:
+        hx = sx / 2.0 + r
+        hz = sz / 2.0 + r
+        if abs(x - lx) < hx and abs(z - lz) < hz:
             return True
     return False
 
@@ -1780,6 +1834,22 @@ def resolve_pillar_collision(x, z, r=PLAYER_RADIUS):
                 z = pz + math.copysign(min_dist, dz if dz != 0.0 else 1.0)
     return x, z
 
+def resolve_ledge_collision(x, z, r=PLAYER_RADIUS):
+    """Pushes (x, z) outside any intersecting basalt ledge so player cannot penetrate."""
+    for lx, lz, sx, sz in BASALT_LEDGE_BOXES:
+        hx = sx / 2.0 + r
+        hz = sz / 2.0 + r
+        dx = x - lx
+        dz = z - lz
+        if abs(dx) < hx and abs(dz) < hz:
+            overlap_x = hx - abs(dx)
+            overlap_z = hz - abs(dz)
+            if overlap_x < overlap_z:
+                x = lx + math.copysign(hx, dx if dx != 0.0 else 1.0)
+            else:
+                z = lz + math.copysign(hz, dz if dz != 0.0 else 1.0)
+    return x, z
+
 def try_move_player(dx, dz):
     """
     Attempts to move player by (dx, dz) with smooth wall & pillar sliding and collision radius.
@@ -1794,8 +1864,12 @@ def try_move_player(dx, dz):
     r = PLAYER_RADIUS
 
     def pos_ok(x, z):
-        """Check all radius points to prevent wall and pillar phasing."""
+        """Check all radius points to prevent wall, pillar, and ledge phasing."""
         if collides_with_pillar(x, z, r):
+            return False
+        if collides_with_wall(x, z, r):
+            return False
+        if collides_with_ledge(x, z, r):
             return False
         return (is_valid_walkway_position(x, z) and
                 is_valid_walkway_position(x - r, z) and
@@ -1817,8 +1891,9 @@ def try_move_player(dx, dz):
         player_pos[2] = new_z
         moved = True
 
-    # Extra safety: enforce solid pillar separation so player can never glitch inside
+    # Extra safety: enforce solid pillar and ledge separation so player can never glitch inside
     player_pos[0], player_pos[2] = resolve_pillar_collision(player_pos[0], player_pos[2], r)
+    player_pos[0], player_pos[2] = resolve_ledge_collision(player_pos[0], player_pos[2], r)
 
     if moved:
         walk_cycle_phase += 0.35
@@ -1847,6 +1922,7 @@ def reset_game():
     y_velocity = 0.0
     consecutive_lava_falls = 0
     lava_alert_timer = 0
+    lava_alert_expiry = 0.0
     hazard_alert_text = "Fell into the lava!"
     consecutive_wall_hits = 0
     wall_invincibility_timer = 0
@@ -1979,8 +2055,12 @@ def mouse_motion(x, y):
     dx = x - last_mouse_x
     dy = y - last_mouse_y
     sensitivity = 0.20
-    camera_yaw = (camera_yaw - dx * sensitivity) % 360.0
-    player_pitch = max(-25.0, min(75.0, player_pitch + dy * sensitivity))
+    if first_person:
+        camera_yaw = (camera_yaw - dx * sensitivity) % 360.0
+        player_pitch = max(-65.0, min(65.0, player_pitch - dy * sensitivity))
+    else:
+        camera_yaw = (camera_yaw - dx * sensitivity) % 360.0
+        player_pitch = max(-25.0, min(75.0, player_pitch + dy * sensitivity))
     last_mouse_x = x
     last_mouse_y = y
 

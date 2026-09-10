@@ -689,7 +689,7 @@ def run_campaign():
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
     glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT)
     glutInitWindowPosition(100, 50)
-    glutCreateWindow(b"9 Lives - Level 1: Connected Backrooms Maze Arena ('tung tung tung sahur')")
+    glutCreateWindow(b"9 Lives")
 
     init_all_levels()
     hide_cursor()
