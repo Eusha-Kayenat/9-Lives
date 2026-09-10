@@ -1,20 +1,3 @@
-"""
-===============================================================================
-"9 Lives: Evil Cat World" - Master Campaign Runner & Seamless Transition Engine
-===============================================================================
-Course: CSE423 Computer Graphics Project
-Strict Whitelist: Standard Python & Course Lab Libraries Only
-(OpenGL.GL, OpenGL.GLUT, OpenGL.GLU, sys, os, math, random, ctypes)
-
-SEAMLESS SINGLE-WINDOW ARCHITECTURE:
-- Runs Level 1, Level 2, and Level 3 in a SINGLE continuous OpenGL/GLUT window.
-- Eliminates process exits and window closures between levels.
-- Features rich, animated 2D/3D transition screens displaying story lore,
-  level statistics, mission objectives, and dynamic particle effects.
-- Unified input and state management across all 3 levels.
-===============================================================================
-"""
-
 import os
 import sys
 import math
@@ -61,14 +44,9 @@ lvl3 = None
 transition_timer = 0
 transition_particles = []
 
-# =============================================================================
-# MODULE LOADER & NAMESPACE ISOLATION
-# =============================================================================
+# Module loader: runs level file in an isolated namespace (no main/glutMainLoop)
 def load_level_module(level_num):
-    """
-    Loads and compiles a level file into an isolated execution namespace.
-    Does NOT call main() or start glutMainLoop().
-    """
+    """Loads and executes a level file in an isolated namespace."""
     file_path = LEVEL_FILES.get(level_num)
     if not file_path or not os.path.isfile(file_path):
         base_names = [f"Level {level_num} final", f"Level {level_num}"]
@@ -125,9 +103,7 @@ def init_all_levels():
 
     print(">> All 3 Levels loaded successfully into memory.")
 
-# =============================================================================
-# TRANSITION PARTICLES & EFFECTS GENERATOR
-# =============================================================================
+# Transition particle system
 def init_transition_particles(count=90):
     global transition_particles
     transition_particles = []
@@ -158,7 +134,6 @@ def update_transition_particles():
     for p in transition_particles:
         p['x'] += p['vx']
         p['y'] += p['vy']
-        # Wrap around screen edges
         if p['x'] < -50 or p['x'] > WINDOW_WIDTH + 50 or p['y'] < -50 or p['y'] > WINDOW_HEIGHT + 50:
             ang = random.uniform(0, 2 * math.pi)
             spd = random.uniform(3.0, 8.5)
@@ -167,9 +142,7 @@ def update_transition_particles():
             p['vx'] = math.cos(ang) * spd
             p['vy'] = math.sin(ang) * spd
 
-# =============================================================================
-# 2D DRAWING & TEXT HELPERS FOR TRANSITION SCREENS
-# =============================================================================
+# 2D drawing helpers for transition screens
 def draw_rect_2d(x1, y1, x2, y2, color):
     glColor3f(*color)
     glBegin(GL_QUADS)
@@ -195,7 +168,6 @@ def render_string_2d(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HEL
         glutBitmapCharacter(font, ord(ch))
 
 def render_string_centered(y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18):
-    # Use glutBitmapWidth for pixel-accurate string width measurement
     total_w = sum(glutBitmapWidth(font, ord(ch)) for ch in text_str)
     start_x = max(20, (WINDOW_WIDTH - total_w) / 2.0)
     render_string_2d(start_x, y, text_str, color=color, font=font)
@@ -205,14 +177,10 @@ def render_string_bold(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_H
         for dy in [-1.0, 0.0, 1.0]:
             render_string_2d(x + dx, y + dy, text_str, color=color, font=font)
 
-# =============================================================================
-# LEVEL TRANSITION SCREEN RENDERING
-# =============================================================================
+# Transition screen renderer
 def draw_transition_screen(from_lvl, to_lvl):
-    """
-    Renders an animated, high-fidelity transition cutscene between levels.
-    Displays story progression, mission briefings, and controls.
-    """
+    """Renders the animated level transition cutscene between levels."""
+    
     global WINDOW_WIDTH, WINDOW_HEIGHT, transition_timer
 
     glClearColor(0.02, 0.03, 0.06, 1.0)
@@ -370,9 +338,7 @@ def draw_transition_screen(from_lvl, to_lvl):
 
     glutSwapBuffers()
 
-# =============================================================================
-# LEVEL TRANSITION STATE SWITCHERS
-# =============================================================================
+# Level state switchers
 def start_transition_1_to_2():
     global current_state, transition_timer
     print("\n" + "=" * 70)
@@ -669,22 +635,10 @@ def master_passive_motion(x, y):
     except Exception as e:
         pass
 
-# =============================================================================
-# CAMPAIGN ENTRY POINT
-# =============================================================================
+# Campaign entry point
 def run_campaign():
-    """
-    Launches the master 3-level campaign in a SINGLE unified OpenGL window.
-    """
-    print("\n" + "=" * 75)
-    print("       9 LIVES: EVIL CAT WORLD - MASTER CAMPAIGN")
-    print("       Seamless 3-Level Progression & Transition Engine")
-    print("=" * 75)
-    print(" [1] Level 1: The Backrooms Maze (Exit Portal at Z >= 318)")
-    print(" [2] Level 2: Zombie Cat Arena   (North Exit Door at Z >= 52)")
-    print(" [3] Level 3: The Boss Fight     (Defeat Evil Larry)")
-    print("=" * 75 + "\n")
-
+    """Launches the 3-level campaign in a single unified OpenGL window."""
+    print("\n9 LIVES: EVIL CAT WORLD - starting campaign...\n")
     glutInit(sys.argv)
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
     glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -694,7 +648,6 @@ def run_campaign():
     init_all_levels()
     hide_cursor()
 
-    # Register Master Callbacks
     glutDisplayFunc(master_display)
     glutIdleFunc(master_idle)
     glutKeyboardFunc(master_keyboard)

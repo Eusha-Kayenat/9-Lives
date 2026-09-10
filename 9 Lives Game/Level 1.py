@@ -1,37 +1,3 @@
-"""
-===============================================================================
-"9 Lives" - Level 1: Foundations of Movement (Fully Connected Maze Arena)
-===============================================================================
-Main Character: "tung tung tung sahur"
-Course: CSE423 Computer Graphics Project
-STRICTLY ALLOWED OPENGL FUNCTIONS ONLY (From LAB 01, LAB 1.2, LAB 02, LAB 03)
-
-Design Theme:
-- Expansive 3D Backrooms Labyrinth Walkway with 100% SEAMLESS CONNECTED ROOMS & PATHWAYS
-- Unbroken continuous walls and solid floor pathways linking every corner turn, 
-  room entrance, and feature chamber from Start Hub to Exit Gateway.
-- Connected Progression Route:
-  [Start Hub (Z: 0->60)] ==> [Corner A (Z: 60)] ==> [Hazard Pits (Z: 60->120)]
-  ==> [Long Backrooms Corridor B (Z: 120)] ==> [Disappearing Floor Void (Z: 120->180)]
-  ==> [Corridor C (Z: 180)] ==> [Laser Gauntlet (Z: 180->240)]
-  ==> [Corridor D (Z: 240)] ==> [Moving Walls (Z: 240->300)] ==> [Exit Portal (Z: 330)]
-
-Controls:
-- W / S                 : Move Forward / Backward
-- A / D                 : Strafe Left / Right
-- Mouse Movement        : Aim Camera Direction (Smooth Continuous Look-At - Level 3 style)
-- Spacebar              : Jump (Smooth velocity + gravity)
-- Left / Right Ctrl     : Crouch (Hitbox drops to 0.8 units)
-- V / Right-Click       : Toggle Camera View (1st Person POV <-> 3rd Person Follow)
-- C                     : Toggle God Mode Cheat
-- P                     : Pause / Resume
-- M                     : Toggle Moving Wall Shift Demo
-- T                     : Toggle Disappearing Platform Flash Demo
-- R                     : Reset Player Position to Start Hub
-- ESC / Q               : Exit Game
-===============================================================================
-"""
-
 import math
 import random
 import sys
@@ -41,60 +7,56 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
 
-# -----------------------------------------------------------------------------
-# Global Configurations & Window Settings
-# -----------------------------------------------------------------------------
+# Window dimensions (updated dynamically on resize)
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 750
 WINDOW_TITLE = b"9 Lives"
 
-# -----------------------------------------------------------------------------
-# Player & Physics State
-# -----------------------------------------------------------------------------
-player_pos = [0.0, 0.0, 7.4]     # X, Y, Z coordinates
-player_yaw = 0.0                  # Character facing angle in degrees (set by movement)
-camera_yaw = 0.0                  # Camera orbit angle in degrees (mouse controlled)
-player_pitch = 0.0                # Camera pitch angle looking up/down
-player_speed = 0.90         # Movement speed factor
-crouching = False                 # Crouch state
-walk_cycle_phase = 0.0            # Leg-swing animation phase, advances only while actually moving
-is_walking = False                 # True right after a successful move, drives leg animation
-_idle_ticks_since_move = 0        # Counts idle() ticks since the last successful move; used to detect "stopped walking"
-eye_height = 1.6                  # Standing eye height
+# Player state
+player_pos = [0.0, 0.0, 7.4]
+player_yaw = 0.0           # Character facing angle (set by movement)
+camera_yaw = 0.0           # Camera orbit angle (mouse controlled)
+player_pitch = 0.0
+player_speed = 0.90
+crouching = False
+walk_cycle_phase = 0.0     # Leg-swing animation phase, advances while moving
+is_walking = False
+_idle_ticks_since_move = 0 # Ticks since last move; used to stop walk animation
+eye_height = 1.6
 
-# Jump Physics Parameters
+# Jump physics
 is_jumping = False
 y_velocity = 0.0
 gravity = -0.014
 jump_strength = 0.28
-ground_y = 0.0                    # Floor level Y height
+ground_y = 0.0
 
-first_person = False              # FPS (True) vs Third-Person Follow (False)
-cam_dist = 6.5                    # Distance behind player in 3rd person
-cam_height = 3.8                  # Height above player in 3rd person
+first_person = False
+cam_dist = 6.5
+cam_height = 3.8
 
-# Mouse Look Tracking (Level 3 Cursor System)
+# Mouse look tracking
 last_mouse_x = 0
 last_mouse_y = 0
 mouse_initialized = False
 is_cursor_hidden = False
 
-# Interactive Scaffolding Demo Toggles
-moving_walls_offset = 0.0         # Current shift for moving walls
+# Moving walls animation
+moving_walls_offset = 0.0
 moving_walls_dir = 1.0
 anim_moving_walls = True
 
+# Disappearing floor animation
 platform_timer = 0
 disappearing_tiles_active = [True, True, True, True, True, True]
 anim_disappearing_floor = True
 
-# Game Pause State
 game_paused = False
 
-# Lava Pit & Hazard 3-Strike Tracking
+# Hazard / life tracking
 consecutive_lava_falls = 0
-lava_alert_timer = 0           # frames to show alert message
-lava_alert_expiry = 0.0        # real-time timestamp expiry for exact 2-second alert display
+lava_alert_timer = 0
+lava_alert_expiry = 0.0  # real-time expiry for 1-second alert
 hazard_alert_text = "Fell into the lava!"
 game_over = False
 
@@ -105,16 +67,13 @@ def trigger_hazard_alert(text):
     lava_alert_expiry = time.time() + 1.0
     lava_alert_timer = 60
 
-# Moving Walls Hazard Tracking (Zone 5)
+# Moving wall crush tracking
 consecutive_wall_hits = 0
-wall_invincibility_timer = 0   # frames of invincibility after wall crush hit
+wall_invincibility_timer = 0  # invincibility frames after being crushed
 
-# Invincibility / God Mode Cheat Flag (Toggled by '1' Key)
 cheat_mode = False
 
-# -----------------------------------------------------------------------------
-# Story Screen State & Content
-# -----------------------------------------------------------------------------
+# Story screen state
 in_story_screen = True
 story_lines = [
     "Tung Tung Tung Sahur has wandered into the Evil Cat World!",
@@ -125,34 +84,31 @@ story_char_index = 0
 story_timer = 0
 total_story_len = sum(len(line) for line in story_lines)
 
-# -----------------------------------------------------------------------------
-# Color Palettes
-# -----------------------------------------------------------------------------
-COLOR_FLOOR = (0.10, 0.12, 0.15)       # Dark Slate Floor Tiles
+# Color palette
+COLOR_FLOOR = (0.10, 0.12, 0.15)
 COLOR_FLOOR_SIDE = (0.06, 0.07, 0.09)
-COLOR_WALL = (0.32, 0.33, 0.28)        # Backrooms Desaturated Slate Wall
+COLOR_WALL = (0.32, 0.33, 0.28)
 COLOR_WALL_SIDE = (0.22, 0.23, 0.20)
 COLOR_CEILING = (0.12, 0.13, 0.15)
-COLOR_LIGHT_PANEL = (0.95, 0.95, 0.75) # Fluorescent Overhead Light Panels
+COLOR_LIGHT_PANEL = (0.95, 0.95, 0.75)
+COLOR_RUNNER = (0.75, 0.08, 0.12)
+COLOR_GOLD_TRIM = (0.90, 0.75, 0.15)
+COLOR_PILLAR = (0.16, 0.16, 0.20)
+COLOR_CYAN_GLOW = (0.0, 0.85, 1.0)
+COLOR_LAVA = (1.0, 0.25, 0.0)
+COLOR_HAZARD_STRIPE = (0.95, 0.85, 0.1)
+COLOR_LASER_RED = (1.0, 0.1, 0.2)
+COLOR_LASER_CYAN = (0.0, 0.9, 1.0)
+COLOR_PORTAL_CYAN = (0.0, 0.75, 1.0)
 
-COLOR_RUNNER = (0.75, 0.08, 0.12)      # Deep Red Carpet
-COLOR_GOLD_TRIM = (0.90, 0.75, 0.15)   # Gold Edge Trim
-COLOR_PILLAR = (0.16, 0.16, 0.20)      # Dark Charcoal Pillars
-COLOR_CYAN_GLOW = (0.0, 0.85, 1.0)     # Neon Cyan Accent Caps
-COLOR_LAVA = (1.0, 0.25, 0.0)          # Fiery Orange Lava Pit
-COLOR_HAZARD_STRIPE = (0.95, 0.85, 0.1)# Warning Yellow
-COLOR_LASER_RED = (1.0, 0.1, 0.2)      # Laser Red
-COLOR_LASER_CYAN = (0.0, 0.9, 1.0)     # Laser Cyan
-COLOR_PORTAL_CYAN = (0.0, 0.75, 1.0)   # Exit Portal Ring
-
-# Character Palette ("tung tung tung sahur")
+# Character palette
 c_body = (222/255, 137/255, 34/255)
 c_dark = (117/255, 76/255, 18/255)
 c_goggle = (229/255, 230/255, 230/255)
 c_white = (1.0, 1.0, 1.0)
 
 def load_character_model():
-    """Initializes palette for 'tung tung tung sahur'."""
+    """Initializes character color palette."""
     global c_body, c_dark, c_goggle, c_white
     c_body = (222/255, 137/255, 34/255)
     c_dark = (117/255, 76/255, 18/255)
@@ -160,63 +116,43 @@ def load_character_model():
     c_white = (1.0, 1.0, 1.0)
 
 # -----------------------------------------------------------------------------
-# 3D Helper Primitives & Text Rendering
+# 3D Primitives & 2D Text Helpers
 # -----------------------------------------------------------------------------
 def draw_box(sx, sy, sz, color_top=None, color_side=None):
-    """
-    Draws a solid box centered at origin with dimensions sx, sy, sz.
-    """
+    """Draws a solid box centered at origin with dimensions sx, sy, sz."""
     hx, hy, hz = sx / 2.0, sy / 2.0, sz / 2.0
     glBegin(GL_QUADS)
-    
-    # Top Face (Y+)
     if color_top:
         glColor3f(*color_top)
     glVertex3f(-hx, hy, hz); glVertex3f(hx, hy, hz); glVertex3f(hx, hy, -hz); glVertex3f(-hx, hy, -hz)
-    
-    # Bottom Face (Y-)
     glVertex3f(-hx, -hy, -hz); glVertex3f(hx, -hy, -hz); glVertex3f(hx, -hy, hz); glVertex3f(-hx, -hy, hz)
-    
-    # Front Face (Z+)
     if color_side:
         glColor3f(color_side[0] * 0.9, color_side[1] * 0.9, color_side[2] * 0.9)
     glVertex3f(-hx, -hy, hz); glVertex3f(hx, -hy, hz); glVertex3f(hx, hy, hz); glVertex3f(-hx, hy, hz)
-    
-    # Back Face (Z-)
     if color_side:
         glColor3f(color_side[0] * 0.85, color_side[1] * 0.85, color_side[2] * 0.85)
     glVertex3f(-hx, hy, -hz); glVertex3f(hx, hy, -hz); glVertex3f(hx, -hy, -hz); glVertex3f(-hx, -hy, -hz)
-    
-    # Left Face (X-)
     if color_side:
         glColor3f(color_side[0] * 0.8, color_side[1] * 0.8, color_side[2] * 0.8)
     glVertex3f(-hx, -hy, -hz); glVertex3f(-hx, -hy, hz); glVertex3f(-hx, hy, hz); glVertex3f(-hx, hy, -hz)
-    
-    # Right Face (X+)
     if color_side:
         glColor3f(color_side[0] * 0.85, color_side[1] * 0.85, color_side[2] * 0.85)
     glVertex3f(hx, -hy, -hz); glVertex3f(hx, hy, -hz); glVertex3f(hx, hy, hz); glVertex3f(hx, -hy, hz)
-    
     glEnd()
 
 def draw_text(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18):
-    """
-    Renders 2D HUD text using allowlisted GLUT bitmap font with optional color and font parameters.
-    """
+    """Renders 2D HUD text in orthographic overlay mode."""
     glColor3f(*color)
     glMatrixMode(GL_PROJECTION)
     glPushMatrix()
     glLoadIdentity()
     gluOrtho2D(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
-    
     glMatrixMode(GL_MODELVIEW)
     glPushMatrix()
     glLoadIdentity()
-    
     glRasterPos2f(x, y)
     for ch in text_str:
         glutBitmapCharacter(font, ord(ch))
-        
     glPopMatrix()
     glMatrixMode(GL_PROJECTION)
     glPopMatrix()
@@ -227,9 +163,7 @@ def draw_text_bold(x, y, text_str, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVE
         draw_text(x + dx, y + dy, text_str, color, font)
 
 def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(0.9, 0.9, 0.9)):
-    """
-    Renders a 2D health bar with border frame and filled percentage (Level 3 HUD style).
-    """
+    """Renders a 2D health bar with border and percentage fill."""
     glMatrixMode(GL_PROJECTION)
     glPushMatrix()
     glLoadIdentity()
@@ -237,8 +171,6 @@ def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(0.9, 0.9, 0.9)):
     glMatrixMode(GL_MODELVIEW)
     glPushMatrix()
     glLoadIdentity()
-
-    # Border frame
     glBegin(GL_LINES)
     glColor3f(*border_color)
     glVertex2f(x, y); glVertex2f(x + w, y)
@@ -246,8 +178,6 @@ def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(0.9, 0.9, 0.9)):
     glVertex2f(x + w, y + h); glVertex2f(x, y + h)
     glVertex2f(x, y + h); glVertex2f(x, y)
     glEnd()
-
-    # Inner health fill
     fill_w = max(0.0, min(1.0, fill_pct)) * (w - 2)
     if fill_w > 0:
         glBegin(GL_QUADS)
@@ -257,20 +187,17 @@ def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(0.9, 0.9, 0.9)):
         glVertex2f(x + 1 + fill_w, y + h - 1)
         glVertex2f(x + 1, y + h - 1)
         glEnd()
-
     glPopMatrix()
     glMatrixMode(GL_PROJECTION)
     glPopMatrix()
     glMatrixMode(GL_MODELVIEW)
 
 # -----------------------------------------------------------------------------
-# Character Rendering: "tung tung tung sahur"
+# Character Rendering
 # -----------------------------------------------------------------------------
 def draw_character(cam_x=0.0, cam_z=0.0):
-    """
-    Renders 3D character model for 'tung tung tung sahur' at player coordinates.
-    Backside faces camera when moving forward (Level 3 orientation & depth ordering).
-    """
+    """Renders the player character model. Skipped in first-person view."""
+    
     if first_person:
         return
 
@@ -279,7 +206,7 @@ def draw_character(cam_x=0.0, cam_z=0.0):
     glTranslatef(player_pos[0], curr_y, player_pos[2])
     glRotatef(player_yaw, 0, 1, 0)
 
-    # Align model Z (height) -> World Y, model Y (front) -> World Z
+    # Align model axes: model Z (height) -> world Y, model Y (forward) -> world Z
     glRotatef(-90, 1, 0, 0)
     glRotatef(180, 0, 0, 1)
 
@@ -289,20 +216,17 @@ def draw_character(cam_x=0.0, cam_z=0.0):
     else:
         glScalef(scale_factor, scale_factor, scale_factor)
 
-    # Elevate model by +14 units so the soles of the shoes align precisely with the ground/rock top surface
-    glTranslatef(0, 0, 14.0)
+    glTranslatef(0, 0, 14.0)  # align soles with ground
 
     rad_yaw = math.radians(player_yaw)
     fwd_x = math.sin(rad_yaw)
     fwd_z = math.cos(rad_yaw)
     to_cam_x = cam_x - player_pos[0]
     to_cam_z = cam_z - player_pos[2]
-    # Camera is in front of character when its position is in the same
-    # direction as the character's facing vector
+    # Camera is in front when it lies in the same direction as the character's facing vector
     is_front = (fwd_x * to_cam_x + fwd_z * to_cam_z) > 0.0
 
     def draw_face_details():
-        # Goggles & Eyes (Left/Right)
         for eye_x in [-16, 16]:
             glPushMatrix()
             glColor3f(*c_goggle)
@@ -363,11 +287,10 @@ def draw_character(cam_x=0.0, cam_z=0.0):
         glutSolidCube(100)
         glPopMatrix()
 
-    # If camera is behind character, draw face details FIRST so the main body covers them
+    # Draw face before body when camera is behind (body will cover it correctly)
     if not is_front:
         draw_face_details()
 
-    # Main Body
     glPushMatrix()
     glColor3f(*c_body)
     glTranslatef(0, 0, 120)
@@ -375,11 +298,9 @@ def draw_character(cam_x=0.0, cam_z=0.0):
     glutSolidCube(100)
     glPopMatrix()
 
-    # If camera is in front of character, draw face details AFTER body so they are visible
     if is_front:
         draw_face_details()
 
-    # Arms (natural walking swing, referenced from The House of the Jinns)
     arm_swing_amplitude = 24.0
     for side_x, phase_offset in ((-38.5, math.pi), (38.5, 0.0)):
         arm_angle = 0.0
@@ -395,8 +316,7 @@ def draw_character(cam_x=0.0, cam_z=0.0):
         glutSolidCube(100)
         glPopMatrix()
 
-    # Legs
-    leg_swing_amplitude = 28.0  # degrees
+    leg_swing_amplitude = 28.0
     for leg_x, phase_offset in ((-14, 0.0), (14, math.pi)):
         swing_angle = 0.0
         if is_walking:
@@ -424,20 +344,17 @@ def draw_character(cam_x=0.0, cam_z=0.0):
     glPopMatrix()
 
 # -----------------------------------------------------------------------------
-# 100% CONNECTED MAZE PATHWAYS & WALLS
+# Maze Geometry: Floors, Walls, Pillars
 # -----------------------------------------------------------------------------
 def draw_connected_floor_pathways():
-    """
-    Draws a 100% tightly bound, fully connected solid floor mesh matching the exact widths
-    and lengths of the active walkway corridors and chambers (width 11.2 units).
-    """
-    # 1. Start Hub Floor (X: -6.0 -> +6.0, Z: -0.4 -> 54.4)
+    """Draws the solid floor mesh for all maze corridors and chambers."""
+    
+    # Start hub floor + red carpet runner
     glPushMatrix()
     glTranslatef(0.0, -0.1, 27.0)
     draw_box(12.0, 0.2, 54.8, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
-    # Red Carpet Runner in Start Hub
     glPushMatrix()
     glTranslatef(0.0, 0.02, 20.0)
     draw_box(3.6, 0.04, 40.0, color_top=COLOR_RUNNER, color_side=(0.4, 0.04, 0.06))
@@ -449,61 +366,55 @@ def draw_connected_floor_pathways():
     glVertex3f(1.8, 0.05, 0.0); glVertex3f(1.8, 0.05, 40.0)
     glEnd()
 
-    # 2. Junction A / Walkway A Floor (X: -6.0 -> 46.0, Z: 54.4 -> 65.6)
+    # Junction A floor
     glPushMatrix()
     glTranslatef(20.0, -0.1, 60.0)
     draw_box(52.0, 0.2, 11.2, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
-    # 3. Hazard Pit Corridor (Zone 2, X: 34.4 -> 45.6, Z: 65.6 -> 114.4)
-    #    Entire floor is lava + rock slabs rendered in draw_hazard_zones()
+    # (Lava pit corridor floor is rendered in draw_hazard_zones())
 
-    # 4. Junction B / Walkway B Floor (X: -46.0 -> +46.0, Z: 114.4 -> 125.6)
+    # Junction B floor
     glPushMatrix()
     glTranslatef(0.0, -0.1, 120.0)
     draw_box(92.0, 0.2, 11.2, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
-    # 5. Disappearing Floor Entry & Exit Connected Ledges (X: -45.6 -> -34.4)
-    # Entry Ledge (Z: 125.2 -> 130.8)
+    # Disappearing floor entry and exit ledges
     glPushMatrix()
     glTranslatef(-40.0, -0.1, 128.0)
     draw_box(11.2, 0.2, 5.6, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
-    # Exit Ledge (Z: 169.2 -> 174.8)
     glPushMatrix()
     glTranslatef(-40.0, -0.1, 172.0)
     draw_box(11.2, 0.2, 5.6, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
-    # 6. Junction C / Walkway C Floor (X: -46.0 -> 25.6, Z: 174.4 -> 185.6)
+    # Junction C floor
     glPushMatrix()
     glTranslatef(-10.2, -0.1, 180.0)
     draw_box(71.6, 0.2, 11.2, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
-    # 7. Laser Gauntlet Corridor Floor (X: 14.4 -> 25.6, Z: 185.6 -> 234.4)
+    # Laser gauntlet corridor floor
     glPushMatrix()
     glTranslatef(20.0, -0.1, 210.0)
     draw_box(11.2, 0.2, 48.8, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
-    # 8. Junction D / Walkway D Floor (X: 14.4 -> 75.6, Z: 234.4 -> 245.6)
+    # Junction D floor
     glPushMatrix()
     glTranslatef(45.0, -0.1, 240.0)
     draw_box(61.2, 0.2, 11.2, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
-    # 9. Moving Walls & Exit Chamber Floor (X: 64.4 -> 75.6, Z: 245.6 -> 340.0)
+    # Moving walls and exit chamber floor
     glPushMatrix()
     glTranslatef(70.0, -0.1, 292.8)
     draw_box(11.2, 0.2, 94.4, color_top=COLOR_FLOOR, color_side=COLOR_FLOOR_SIDE)
     glPopMatrix()
 
-# -----------------------------------------------------------------------------
-# Maze Walls, Lights, and Pillars Layout Tables (for Depth-Sorted Rendering)
-# -----------------------------------------------------------------------------
 MAZE_WALL_SEGMENTS = [
     # (cx, cy, cz, sx, sy, sz)
     (0.0, 3.5, -0.4, 13.6, 7.0, 0.8),          # South Wall of Start Hub
@@ -556,9 +467,8 @@ _subdivided_walls = None
 
 def _get_subdivided_walls(max_len=3.8):
     """
-    Subdivides long wall segments into small modular blocks (max length <= 3.8 units).
-    Ensures per-segment depth distance calculation in Painter's Algorithm is 100% accurate
-    and walls completely occlude background geometry without requiring glEnable(GL_DEPTH_TEST).
+    Subdivides long wall segments into small blocks (max length <= 3.8 units).
+    Ensures per-segment depth calculation is accurate for the Painter's Algorithm.
     """
     global _subdivided_walls
     if _subdivided_walls is not None:
@@ -585,9 +495,7 @@ def _get_subdivided_walls(max_len=3.8):
     return _subdivided_walls
 
 def draw_connected_walls():
-    """
-    Renders 100% unbroken, fully connected walls around the entire maze layout.
-    """
+    """Renders maze walls and ceiling light panels."""
     for cx, cy, cz, sx, sy, sz in _get_subdivided_walls():
         glPushMatrix()
         glTranslatef(cx, cy, cz)
@@ -601,9 +509,8 @@ def draw_connected_walls():
         glPopMatrix()
 
 def draw_pillars_and_archways():
-    """
-    Draws dark charcoal vertical pillars with cyan glowing caps at key maze turns.
-    """
+    """Draws dark charcoal pillars with cyan glowing caps at maze turn corners."""
+    
     for px, pz in PILLAR_COORDS:
         glPushMatrix()
         glTranslatef(px, 3.5, pz)
@@ -616,7 +523,7 @@ def draw_pillars_and_archways():
         glPopMatrix()
 
 # -----------------------------------------------------------------------------
-# Section 2 Hazard Zones: Dark Obsidian & Lava Tile Corridor (Constants & Draw)
+# Lava Hazard Zone (Section 2)
 # -----------------------------------------------------------------------------
 LAVA_TILE_ROCKS = [
     # (rx, rz, sx, sz, tilt)
@@ -631,18 +538,14 @@ LAVA_TILE_ROCKS = [
 ]
 
 def draw_lava_base_only():
-    """
-    Renders the foundational recessed lava pit body and ground molten glow.
-    Always drawn first with base floors.
-    """
-    CX   = 40.0        # corridor X centre
-    CXHW = 5.6         # corridor X half-width (34.4 to 45.6)
+    """Renders the recessed lava pit base. Called before hazard rocks so depth is correct."""
+    CX   = 40.0   # corridor center X
+    CXHW = 5.6    # half-width (34.4 to 45.6)
     ZSTART = 65.6
     ZEND   = 114.4
-    ZDEPTH = ZEND - ZSTART   # ~48.8 units
-    ZCZ    = (ZSTART + ZEND) / 2.0  # centre Z
+    ZDEPTH = ZEND - ZSTART
+    ZCZ    = (ZSTART + ZEND) / 2.0
 
-    # 1. DEEP RECESSED PIT & MOLTEN LAVA BASE
     glPushMatrix()
     glTranslatef(CX, -2.2, ZCZ)
     draw_box(CXHW * 2, 4.4, ZDEPTH, color_top=(0.02, 0.01, 0.02), color_side=(0.06, 0.02, 0.03))
@@ -665,7 +568,7 @@ def draw_lava_base_only():
              color_top=(1.0, 0.65, 0.0), color_side=(0.95, 0.35, 0.0))
     glPopMatrix()
 
-    # 2. FLOOR LAVA TILES GRID (Scattered dark basalt crust tiles)
+    # Scattered dark basalt crust tiles on the lava surface
     for z_tile in range(int(ZSTART) + 2, int(ZEND) - 2, 3):
         for x_off in [-3.8, -1.9, 0.0, 1.9, 3.8]:
             glPushMatrix()
@@ -698,10 +601,7 @@ def _draw_lava_spike(x, y, z, base_w=0.35, height=1.5):
     glPopMatrix()
 
 def draw_lava_tile_rock(rx, rz, sx, sz, tilt=0.0):
-    """
-    Draws a single dark obsidian stepping stone island with magma-filled tile grooves on top.
-    """
-    # A. Dark Obsidian Base Structure
+    """Draws one obsidian stepping-stone island over the lava."""
     glPushMatrix()
     glTranslatef(rx, 1.0, rz)
     if tilt != 0.0:
@@ -711,7 +611,6 @@ def draw_lava_tile_rock(rx, rz, sx, sz, tilt=0.0):
              color_side=(0.07, 0.05, 0.08))
     glPopMatrix()
 
-    # B. Magma Underglow Base Rim
     glPushMatrix()
     glTranslatef(rx, 0.76, rz)
     if tilt != 0.0:
@@ -721,7 +620,6 @@ def draw_lava_tile_rock(rx, rz, sx, sz, tilt=0.0):
              color_side=(0.85, 0.15, 0.0))
     glPopMatrix()
 
-    # C. Glowing Magma Sub-Layer on Rock Surface
     glPushMatrix()
     glTranslatef(rx, 1.26, rz)
     if tilt != 0.0:
@@ -731,7 +629,7 @@ def draw_lava_tile_rock(rx, rz, sx, sz, tilt=0.0):
              color_side=(0.9, 0.30, 0.0))
     glPopMatrix()
 
-    # D. 2x3 Grid of Dark Basalt Lava Tiles on top (Magma glows in the grooves!)
+    # 2x3 grid of dark basalt tiles (magma glows in the grooves between them)
     tile_w = (sx - 0.5) / 2.0
     tile_d = (sz - 0.7) / 3.0
 
@@ -749,15 +647,13 @@ def draw_lava_tile_rock(rx, rz, sx, sz, tilt=0.0):
             glPopMatrix()
 
 def draw_hazard_zones():
-    """
-    Draws the complete Section 2 Lava Hazard zone.
-    """
+    """Draws the lava hazard zone: pit base and all stepping-stone rocks."""
     draw_lava_base_and_tiles()
     for rx, rz, sx, sz, tilt in LAVA_TILE_ROCKS:
         draw_lava_tile_rock(rx, rz, sx, sz, tilt)
 
 # -----------------------------------------------------------------------------
-# Disappearing Platform Chamber Constants & Rendering
+# Disappearing Platform Chamber (Section 3)
 # -----------------------------------------------------------------------------
 DISAPPEARING_TILE_COORDS = [
     (-43.5, 138.0, 0), (-40.0, 138.0, 1), (-36.5, 138.0, 2),
@@ -772,10 +668,8 @@ TILE_COLORS = [
 ]
 
 def draw_disappearing_platforms():
-    """
-    Draws Section 3 (X: -40, Z: 120 -> 180): Deep abyss gap bridged by color-coded platform tiles.
-    Uses module-level DISAPPEARING_TILE_COORDS and TILE_COLORS.
-    """
+    """Draws the color-coded platform tiles over the abyss gap."""
+    
     glPushMatrix()
     glTranslatef(-40.0, -4.0, 150.0)
     draw_box(17.0, 0.2, 32.0, color_top=(0.02, 0.01, 0.05), color_side=(0.01, 0.0, 0.02))
@@ -804,23 +698,21 @@ def draw_disappearing_platforms():
         glPopMatrix()
 
 # -----------------------------------------------------------------------------
-# Laser Gauntlet Constants & Rendering (Section 4, X: 14.4 -> 25.6, Z: 180 -> 240)
+# Laser Gauntlet (Section 4, X: 14.4->25.6, Z: 180->240)
 # -----------------------------------------------------------------------------
+# (z_pos, y_height, color, description)
 LASER_BEAMS = [
-    (192.0, 2.2,  COLOR_LASER_RED, "Laser 1 (Z: 192.0, Y: 2.2) - High Beam (Crouch Under)"),
-    (202.0, 0.65, COLOR_LASER_RED, "Laser 2 (Z: 202.0, Y: 0.65) - Low Beam (Jump Over)"),
-    (212.0, 2.2,  COLOR_LASER_RED, "Laser 3 (Z: 212.0, Y: 2.2) - High Beam (Crouch Under)"),
-    (222.0, 0.65, COLOR_LASER_RED, "Laser 4 (Z: 222.0, Y: 0.65) - Low Beam (Jump Over)"),
-    (232.0, 1.8,  COLOR_LASER_RED, "Laser 5 (Z: 232.0, Y: 1.8) - Mid-High Beam (Crouch Dodge)")
+    (192.0, 2.2,  COLOR_LASER_RED, "High Beam - Crouch Under"),
+    (202.0, 0.65, COLOR_LASER_RED, "Low Beam - Jump Over"),
+    (212.0, 2.2,  COLOR_LASER_RED, "High Beam - Crouch Under"),
+    (222.0, 0.65, COLOR_LASER_RED, "Low Beam - Jump Over"),
+    (232.0, 1.8,  COLOR_LASER_RED, "Mid-High Beam - Crouch Dodge")
 ]
 
 def draw_laser_emitters():
-    """
-    Draws Section 4 (X: 14.4 -> 25.6, Z: 180 -> 240): Crouch & Jump horizontal laser beams.
-    Renders all 5 red laser beams with side emitter boxes and thick glowing red lines.
-    """
+    """Renders laser emitter boxes and glowing beam lines for the gauntlet corridor."""
+    
     for pz, py, color_rgb, desc in LASER_BEAMS:
-        # Left side emitter box
         glPushMatrix()
         glTranslatef(14.7, py, pz)
         draw_box(0.6, 0.8, 0.8, color_top=(0.3, 0.3, 0.35), color_side=(0.2, 0.2, 0.25))
@@ -828,7 +720,6 @@ def draw_laser_emitters():
         draw_box(0.1, 0.4, 0.4, color_top=color_rgb, color_side=color_rgb)
         glPopMatrix()
 
-        # Right side emitter box
         glPushMatrix()
         glTranslatef(25.3, py, pz)
         draw_box(0.6, 0.8, 0.8, color_top=(0.3, 0.3, 0.35), color_side=(0.2, 0.2, 0.25))
@@ -836,61 +727,50 @@ def draw_laser_emitters():
         draw_box(0.1, 0.4, 0.4, color_top=color_rgb, color_side=color_rgb)
         glPopMatrix()
 
-        # Outer glowing red beam box
         glPushMatrix()
         glTranslatef(20.0, py, pz)
-        draw_box(10.0, 0.08, 0.08, color_top=color_rgb, color_side=color_rgb)
-        # Inner bright white core box
-        draw_box(10.0, 0.03, 0.03, color_top=(1.0, 1.0, 1.0), color_side=(1.0, 1.0, 1.0))
+        draw_box(10.0, 0.08, 0.08, color_top=color_rgb, color_side=color_rgb)  # outer glow
+        draw_box(10.0, 0.03, 0.03, color_top=(1.0, 1.0, 1.0), color_side=(1.0, 1.0, 1.0))  # bright core
         glPopMatrix()
 
 # -----------------------------------------------------------------------------
-# Moving Walls Constants (Section 5, X: 64.4 -> 75.6, Z: 240 -> 300)
-# Wall Pair data: (z_center, phase_multiplier)
-#   phase_multiplier = 1.0 means same phase as offset; -1.0 means inverted phase
+# Moving Walls (Section 5, X: 64.4->75.6, Z: 240->300)
+# (z_center, phase_multiplier): phase_mult=-1 means walls are inverted/opposing
 # -----------------------------------------------------------------------------
 MOVING_WALL_PAIRS = [
-    (260.0,  1.0),   # Wall Pair 1: same phase
-    (275.0, -1.0),   # Wall Pair 2: inverted phase (closes when Pair 1 opens)
-    (290.0,  1.0),   # Wall Pair 3: same phase as Pair 1
+    (260.0,  1.0),
+    (275.0, -1.0),  # inverted: closes when pair 1 opens
+    (290.0,  1.0),
 ]
-MOVING_WALL_CX = 70.0      # corridor centre X
-MOVING_WALL_BLOCK_W = 3.0  # width of each wall block
-MOVING_WALL_REST_L = 65.5  # left block rest X
-MOVING_WALL_REST_R = 74.5  # right block rest X
+MOVING_WALL_CX = 70.0
+MOVING_WALL_BLOCK_W = 3.0
+MOVING_WALL_REST_L = 65.5
+MOVING_WALL_REST_R = 74.5
 
 def draw_moving_walls():
-    """
-    Draws Section 5 (X: 64.4 -> 75.6, Z: 240 -> 300): 3 shifting wall pairs
-    with prominent hazard caution stripe edges.
-    """
+    """Draws the 3 shifting wall pairs with hazard stripe inner edges."""
     for wz, phase in MOVING_WALL_PAIRS:
         offset = moving_walls_offset * phase
 
-        # Left crushing wall block
         left_x = MOVING_WALL_REST_L + offset
         glPushMatrix()
         glTranslatef(left_x, 3.0, wz)
         draw_box(MOVING_WALL_BLOCK_W, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
-        # Hazard caution stripe on the crushing inner edge (right side of left block)
         glTranslatef(MOVING_WALL_BLOCK_W / 2.0 - 0.1, 0.0, 0.0)
         draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
         glPopMatrix()
 
-        # Right crushing wall block
         right_x = MOVING_WALL_REST_R - offset
         glPushMatrix()
         glTranslatef(right_x, 3.0, wz)
         draw_box(MOVING_WALL_BLOCK_W, 5.8, 8.0, color_top=(0.35, 0.30, 0.25), color_side=(0.25, 0.20, 0.15))
-        # Hazard caution stripe on the crushing inner edge (left side of right block)
         glTranslatef(-(MOVING_WALL_BLOCK_W / 2.0 - 0.1), 0.0, 0.0)
         draw_box(0.2, 5.6, 7.8, color_top=COLOR_HAZARD_STRIPE, color_side=(0.7, 0.55, 0.0))
         glPopMatrix()
 
 def draw_exit_portal():
-    """
-    Draws Section 6 (X: 70, Z: 330): Glowing blue exit portal gateway out of the Backrooms maze.
-    """
+    """Draws the glowing blue exit portal gateway at the end of the maze."""
+    
     portal_x, portal_z = 70.0, 330.0
 
     glPushMatrix()
@@ -926,13 +806,11 @@ def draw_exit_portal():
     glEnd()
 
 # -----------------------------------------------------------------------------
-# Camera Setup & Display Callback
+# Camera & Display
 # -----------------------------------------------------------------------------
 def setup_camera():
-    """
-    Configures perspective projection and positions camera in 1st or 3rd person mode using gluLookAt.
-    Strictly compliant with course Lab 2/3 camera functions with Level 3 smooth mouse aiming.
-    """
+    """Configures perspective projection and camera position (1st or 3rd person)."""
+    
     glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
@@ -959,7 +837,7 @@ def setup_camera():
                   center_x, center_y, center_z,
                   0.0, 1.0, 0.0)
     else:
-        # Jinns-style smooth 3D spherical orbit camera with pitch and yaw
+        # Spherical orbit: offset behind player using yaw + pitch
         cam_x = player_pos[0] - math.sin(rad_yaw) * cam_dist * math.cos(rad_pitch)
         cam_y = player_pos[1] + cam_height + math.sin(rad_pitch) * cam_dist
         cam_z = player_pos[2] - math.cos(rad_yaw) * cam_dist * math.cos(rad_pitch)
@@ -1013,11 +891,8 @@ def update_window_dimensions():
         pass
 
 def draw_story_screen():
-    """
-    Renders a centered cinematic Story UI Screen with glassmorphism panel,
-    theme-matching cyan/gold colors, typewriter text, and pulsing start prompt.
-    Automatically stays dynamically centered on full screen / window resize.
-    """
+    """Renders the intro story screen with typewriter text and a pulsing start prompt."""
+    
     update_window_dimensions()
 
     glClear(GL_COLOR_BUFFER_BIT)
@@ -1030,7 +905,6 @@ def draw_story_screen():
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
 
-    # 1. Background Ambient Grid
     glColor3f(0.08, 0.10, 0.16)
     glBegin(GL_LINES)
     for gx in range(0, WINDOW_WIDTH, 40):
@@ -1039,27 +913,21 @@ def draw_story_screen():
         glVertex2f(0, gy); glVertex2f(WINDOW_WIDTH, gy)
     glEnd()
 
-    # 2. Centered Story UI Container Panel Box
     panel_w, panel_h = 680, 360
     px1 = (WINDOW_WIDTH - panel_w) // 2
     px2 = px1 + panel_w
     py1 = (WINDOW_HEIGHT - panel_h) // 2
     py2 = py1 + panel_h
 
-    # Dark Slate Inner Glass Box
     draw_rect_2d(px1, py1, px2, py2, (0.07, 0.08, 0.13))
-
-    # Outer Cyan & Gold Dual Accent Borders
     draw_rect_border_2d(px1, py1, px2, py2, (0.0, 0.75, 0.95), line_width=2.5)
     draw_rect_border_2d(px1 + 4, py1 + 4, px2 - 4, py2 - 4, (1.0, 0.7, 0.2), line_width=1.0)
 
-    # 3. Header Title (Fiery Orange / Amber Gold)
     title_str = "9 Lives"
     t_w = len(title_str) * 9.2
     t_start_x = (WINDOW_WIDTH - t_w) // 2
     title_y = py2 - 48
 
-    # Title Glow Shadow
     glColor3f(0.3, 0.1, 0.0)
     glRasterPos2f(t_start_x + 1, title_y - 1)
     for ch in title_str:
@@ -1070,18 +938,15 @@ def draw_story_screen():
     for ch in title_str:
         glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
 
-    # Divider Accent Line under Title
     glColor3f(0.0, 0.75, 0.95)
     glBegin(GL_LINES)
     glVertex2f(px1 + 40, py2 - 62)
     glVertex2f(px2 - 40, py2 - 62)
     glEnd()
 
-    # 4. Typewriter Story Body Text Lines (Vertically & Horizontally Centered inside Panel)
     chars_left = story_char_index
-    body_center_y = py1 + 175  # Vertical center of panel
+    body_center_y = py1 + 175
 
-    # 3 lines spacing offsets: +35, -5, -45
     line_y_offsets = [35, -5, -45]
     line_colors = [
         (1.0, 0.88, 0.35),  # Warm Gold for Line 1 ("Tung Tung Tung Sahur...")
@@ -1105,27 +970,20 @@ def draw_story_screen():
         for ch in visible_text:
             glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
 
-    # 5. Pulsing Bottom Prompt Button Bar
     prompt_str = "PRESS SPACE OR ENTER TO START"
-    # Use glutBitmapWidth for pixel-accurate string width measurement
     p_w = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(ch)) for ch in prompt_str)
     p_start_x = (WINDOW_WIDTH - p_w) // 2
     prompt_y = py1 + 35
-
     pulse_val = 0.5 + 0.5 * math.sin(story_timer * 0.08)
 
-    # Generous horizontal padding so border always fully wraps the text
     box_pad_x = 36
     box_x1 = p_start_x - box_pad_x
     box_x2 = p_start_x + p_w + box_pad_x
     box_y1 = prompt_y - 10
     box_y2 = prompt_y + 26
 
-    # Draw prompt button background & glowing border frame
     draw_rect_2d(box_x1, box_y1, box_x2, box_y2, (0.05, 0.12 + 0.10 * pulse_val, 0.20 + 0.15 * pulse_val))
     draw_rect_border_2d(box_x1, box_y1, box_x2, box_y2, (0.0, 0.70 + 0.30 * pulse_val, 0.90 + 0.10 * pulse_val), line_width=2.0)
-
-    # Render prompt text perfectly centered inside button bar
     glColor3f(0.85 + 0.15 * pulse_val, 0.95 + 0.05 * pulse_val, 1.0)
     glRasterPos2f(p_start_x, prompt_y)
     for ch in prompt_str:
@@ -1134,17 +992,13 @@ def draw_story_screen():
     glutSwapBuffers()
 
 def display():
-    """
-    Main OpenGL Display Callback with Depth-Tested Rendering.
-    Uses GL_DEPTH_TEST for clean, smooth, correct back-to-front occlusion.
-    """
+    """Main display callback. Renders the story screen or the 3D game world."""
     update_window_dimensions()
 
     if in_story_screen:
         draw_story_screen()
         return
 
-    # Depth-buffered rendering for clean, flicker-free visuals
     glEnable(GL_DEPTH_TEST)
     glDepthFunc(GL_LEQUAL)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -1152,7 +1006,6 @@ def display():
 
     setup_camera()
 
-    # 1. Render Flat Base Ground / Floors & Lava Base first (foundational floor)
     draw_connected_floor_pathways()
     draw_lava_base_only()
 
@@ -1168,10 +1021,9 @@ def display():
         cam_y = player_pos[1] + cam_height
         cam_z = player_pos[2] - math.cos(rad) * cam_dist
 
-    # 2. Collect all 3D scene entities for Back-to-Front Depth Sorting (Painter's Algorithm)
+    # Build render list for depth-sorted (Painter's Algorithm) drawing
     render_list = []
 
-    # A. Subdivided Maze Wall Segments (accurate modular segment positions)
     for w_cx, w_cy, w_cz, w_sx, w_sy, w_sz in _get_subdivided_walls():
         def _draw_w(cx=w_cx, cy=w_cy, cz=w_cz, sx=w_sx, sy=w_sy, sz=w_sz):
             glPushMatrix()
@@ -1180,7 +1032,6 @@ def display():
             glPopMatrix()
         render_list.append((w_cx, w_cy, w_cz, _draw_w))
 
-    # B. Ceiling light panels
     for lx, lz in LIGHT_COORDS:
         def _draw_l(lx=lx, lz=lz):
             glPushMatrix()
@@ -1189,7 +1040,6 @@ def display():
             glPopMatrix()
         render_list.append((lx, 6.9, lz, _draw_l))
 
-    # C. Vertical Pillars & Archway Glow Caps
     for px, pz in PILLAR_COORDS:
         def _draw_p(px=px, pz=pz):
             glPushMatrix()
@@ -1202,13 +1052,11 @@ def display():
             glPopMatrix()
         render_list.append((px, 3.5, pz, _draw_p))
 
-    # D. Lava Stepping Stone Islands
     for rx, rz, sx, sz, tilt in LAVA_TILE_ROCKS:
         def _draw_rock(rx=rx, rz=rz, sx=sx, sz=sz, tilt=tilt):
             draw_lava_tile_rock(rx, rz, sx, sz, tilt)
         render_list.append((rx, 1.0, rz, _draw_rock))
 
-    # E. Lava Hazard Spikes
     for z_spk in range(int(65.6) + 3, int(114.4) - 3, 4):
         for sx_off, base_w, h, z_off in [(-4.2, 0.40, 1.8, 0.0), (-2.5, 0.30, 1.4, 1.5), (2.5, 0.32, 1.5, 0.8), (4.2, 0.42, 1.9, 2.2)]:
             spk_x = 40.0 + sx_off
@@ -1217,7 +1065,6 @@ def display():
                 _draw_lava_spike(x, 0.1, z, bw, ht)
             render_list.append((spk_x, 0.1 + h * 0.5, spk_z, _spk))
 
-    # F. Basalt Side Wall Ledges with Magma Seams
     for z_side in range(int(65.6), int(114.4), 6):
         for sign_x in [-1.0, 1.0]:
             ledge_x = 40.0 + sign_x * (5.6 - 0.6)
@@ -1233,7 +1080,6 @@ def display():
                 glPopMatrix()
             render_list.append((ledge_x, 0.5, ledge_z, _draw_ledge))
 
-    # G. Hazard Corridor Warning Stripes
     for pz in [65.8, 114.2]:
         def _draw_ws(pz=pz):
             glPushMatrix()
@@ -1242,7 +1088,6 @@ def display():
             glPopMatrix()
         render_list.append((40.0, 0.04, pz, _draw_ws))
 
-    # H. Disappearing Floor Platforms
     for px, pz, color_idx in DISAPPEARING_TILE_COORDS:
         def _draw_dt(px=px, pz=pz, c=color_idx):
             is_active = disappearing_tiles_active[c]
@@ -1265,7 +1110,6 @@ def display():
             glPopMatrix()
         render_list.append((px, 0.0, pz, _draw_dt))
 
-    # I. Laser Emitters & Glowing Beams
     for pz, py, color_rgb, desc in LASER_BEAMS:
         def _draw_laser(pz=pz, py=py, col=color_rgb):
             glPushMatrix()
@@ -1289,7 +1133,6 @@ def display():
             glPopMatrix()
         render_list.append((20.0, py, pz, _draw_laser))
 
-    # J. Moving Walls
     for z_center, phase_mult in MOVING_WALL_PAIRS:
         offset = moving_walls_offset * phase_mult
         left_x = MOVING_WALL_REST_L + offset
@@ -1313,12 +1156,11 @@ def display():
             glPopMatrix()
         render_list.append((right_x, 3.0, z_center, _draw_mw_r))
 
-    # K. Exit Portal
     render_list.append((70.0, 2.5, 330.0, draw_exit_portal))
 
-    # L. Player Character ("tung tung tung sahur")
     if not first_person:
         def _draw_player():
+            # Blink player during wall invincibility
             if wall_invincibility_timer > 0:
                 if (wall_invincibility_timer // 10) % 2 == 0:
                     draw_character(cam_x, cam_z)
@@ -1326,20 +1168,19 @@ def display():
                 draw_character(cam_x, cam_z)
         render_list.append((player_pos[0], player_pos[1] + 0.8, player_pos[2], _draw_player))
 
-    # 3. Render all entities (depth test handles occlusion automatically)
     for ex, ey, ez, fn in render_list:
         fn()
 
-    # 4. Clean 2D HUD Overlay (Bottom-Left Corner) - Matching Level 2 and Level 3
+    # HUD
     remaining_lives = max(0, 9 - consecutive_lava_falls)
     player_pct = remaining_lives / 9.0
 
     if player_pct > 0.5:
-        bar_color = (0.1, 0.9, 0.2)    # Bright Green
+        bar_color = (0.1, 0.9, 0.2)
     elif player_pct > 0.25:
-        bar_color = (1.0, 0.8, 0.0)    # Warning Yellow
+        bar_color = (1.0, 0.8, 0.0)
     else:
-        bar_color = (1.0, 0.15, 0.15)  # Danger Red
+        bar_color = (1.0, 0.15, 0.15)
 
     pw, ph = 220, 16
     px, py = 25, 45
@@ -1366,7 +1207,7 @@ def display():
         sw = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in alert_str)
         cx = (WINDOW_WIDTH - sw) // 2
         cy = WINDOW_HEIGHT // 2 + 50
-        # High-visibility bold warning: dark shadow outline + bold vibrant golden-amber
+        # Dark outline shadow for readability, then bright gold text on top
         for ox in (-2, -1, 0, 1, 2):
             for oy in (-2, -1, 0, 1, 2):
                 if ox != 0 or oy != 0:
@@ -1378,20 +1219,17 @@ def display():
     glutSwapBuffers()
 
 # -----------------------------------------------------------------------------
-# Physics & Animation Loop
+# Physics, Collision & Animation
 # -----------------------------------------------------------------------------
-# --- Lava Corridor Geometry Constants ---
 LAVA_PIT_X_MIN  = 34.4
 LAVA_PIT_X_MAX  = 45.6
-LAVA_PIT_1_ZMIN = 66.0     # Full corridor start
-LAVA_PIT_1_ZMAX = 114.4    # Full corridor end
-# (no separate pit 2 — entire corridor is one lava zone)
+LAVA_PIT_1_ZMIN = 66.0
+LAVA_PIT_1_ZMAX = 114.4
 
-# Rock top surface Y = 1.34  (matching 2x3 basalt lava tile top)
+# Rock top Y aligns with 2x3 basalt tile surface
 STEP_TOP_Y = 1.34
 
-# All 8 rocks: (x_centre, z_centre, half_x, half_z)
-# Strict hitboxes matching exact visual rock size (3.6x4.2 slab -> half_x=1.8, half_z=2.1)
+# Hitboxes matching visual rock size (3.6x4.2 -> half 1.8 x 2.1)
 STEPPING_BOXES = [
     (40.0,  68.0, 1.8, 2.1),  # R1 — entry centre
     (38.8,  74.3, 1.8, 2.1),  # R2 — left
@@ -1419,12 +1257,8 @@ def in_lava_pit():
     return in_x and in_z and not on_stepping_box()
 
 def check_laser_collisions():
-    """
-    Checks whether the player collides with any of the 5 laser beams in Section 4 (X: 14.4->25.6, Z: 180->240).
-    The player can freely CROUCH or JUMP by their choice to dodge any laser beam.
-    If the player is crouching OR jumping, the laser is safely dodged.
-    Laser positions remain unchanged.
-    """
+    """Checks if the player is hit by any laser beam. Crouching or jumping safely dodges."""
+    
     global player_pos, player_yaw, is_jumping, y_velocity
     global consecutive_lava_falls, lava_alert_timer, hazard_alert_text, game_over
 
@@ -1433,24 +1267,19 @@ def check_laser_collisions():
 
     px, py, pz = player_pos[0], player_pos[1], player_pos[2]
 
-    # Only check inside Laser Gauntlet corridor (X: 14.4 -> 25.6, Z: 180 -> 240)
     if not (14.4 <= px <= 25.6 and 180.0 <= pz <= 240.0):
         return False
 
-    # Safe dodge if player is EITHER crouching OR jumping (or elevated off ground)
     player_is_dodging = crouching or is_jumping or (py > ground_y + 0.15)
 
     for lz, ly, color_rgb, desc in LASER_BEAMS:
-        # Z hit window (~0.7 units around laser beam)
-        if abs(pz - lz) <= 0.7:
-            # If the player is NOT dodging (neither crouching nor jumping), the laser hits!
+        if abs(pz - lz) <= 0.7:  # ±0.7 unit hit window around beam
             if not player_is_dodging:
                 consecutive_lava_falls += 1
                 trigger_hazard_alert("Hit by Laser! (Crouch 'CTRL' or Jump 'SPACE' to dodge)")
                 if consecutive_lava_falls >= 9:
                     game_over = True
-                # Respawn at Laser Gauntlet entrance
-                player_pos = [20.0, 0.0, 182.0]
+                player_pos = [20.0, 0.0, 182.0]  # respawn at gauntlet entrance
                 player_yaw = 0.0
                 is_jumping = False
                 y_velocity = 0.0
@@ -1459,12 +1288,8 @@ def check_laser_collisions():
 
 def check_moving_wall_collisions():
     """
-    Checks whether the player is pinched/crushed between moving wall pairs in Zone 5.
-    For each wall pair, calculates the dynamic gap. If the player's X falls outside the
-    safe open gap between the left and right walls, a pinch/crush hit occurs.
-    - Grants 60 invincibility frames after a hit (blink effect).
-    - Tracks consecutive_wall_hits; 3 consecutive hits respawns at Zone 5 entry.
-    - Feeds into global hazard strike / game_over system.
+    Checks if the player is crushed between moving walls in Zone 5.
+    Grants 60 invincibility frames after a hit. 3 consecutive hits respawn the player.
     """
     global player_pos, player_yaw, is_jumping, y_velocity
     global consecutive_lava_falls, lava_alert_timer, hazard_alert_text, game_over
@@ -1473,47 +1298,37 @@ def check_moving_wall_collisions():
     if cheat_mode:
         return False
 
-    # Skip if invincibility frames are active (just got hit)
     if wall_invincibility_timer > 0:
         return False
 
     px, pz = player_pos[0], player_pos[2]
 
-    # Only check inside Moving Walls corridor (X: 64.4 -> 75.6, Z: 240 -> 300)
     if not (64.4 <= px <= 75.6 and 240.0 <= pz <= 300.0):
-        # Safely crossed past all walls — reset consecutive wall hits
         if pz > 298.0 and consecutive_wall_hits > 0:
             consecutive_wall_hits = 0
         return False
 
     for wz, phase in MOVING_WALL_PAIRS:
-        # Z-span check: player within ~4.0 units of wall pair center (each wall block is 8.0 deep)
-        if abs(pz - wz) < 4.0:
+        if abs(pz - wz) < 4.0:  # within the 8-unit deep wall block
             offset = moving_walls_offset * phase
-
-            # Calculate dynamic wall edge positions
             left_inner_edge = (MOVING_WALL_REST_L + offset) + MOVING_WALL_BLOCK_W / 2.0
             right_inner_edge = (MOVING_WALL_REST_R - offset) - MOVING_WALL_BLOCK_W / 2.0
 
-            # Player is crushed if their X position overlaps with either wall block
             if px <= left_inner_edge or px >= right_inner_edge:
-                # --- CRUSH HIT ---
                 consecutive_wall_hits += 1
                 consecutive_lava_falls += 1
                 trigger_hazard_alert("Crushed by Moving Walls!")
-                wall_invincibility_timer = 60  # ~1 second of invincibility blink
+                wall_invincibility_timer = 60  # ~1 second blink
 
                 if consecutive_lava_falls >= 9:
                     game_over = True
 
                 if consecutive_wall_hits >= 3:
-                    # 3 consecutive wall hits: respawn at Zone 5 entry
-                    player_pos = [70.0, 0.0, 245.0]
+                    player_pos = [70.0, 0.0, 245.0]  # respawn at zone 5 entry
                     player_yaw = 0.0
                     consecutive_wall_hits = 0
                 else:
-                    # Push player back to corridor centre to escape the pinch
-                    player_pos[0] = MOVING_WALL_CX
+                    player_pos[0] = MOVING_WALL_CX  # push to corridor center
 
                 is_jumping = False
                 y_velocity = 0.0
@@ -1529,11 +1344,8 @@ def is_on_active_disappearing_tile(px, pz):
     return False
 
 def check_disappearing_floor():
-    """
-    Checks whether the player is inside the Disappearing Floor tile field (Zone 3: Z=135.0->165.0).
-    If the player steps on a vanished tile OR steps into empty void space (not on an active tile)
-    while at floor level, deducts a lifeline, displays hazard alert, and respawns on the safe entry walkway.
-    """
+    """Checks if the player falls into the void in the disappearing floor zone."""
+    
     global player_pos, player_yaw, is_jumping, y_velocity
     global consecutive_lava_falls, lava_alert_timer, hazard_alert_text, game_over
 
@@ -1542,23 +1354,18 @@ def check_disappearing_floor():
 
     px, py, pz = player_pos[0], player_pos[1], player_pos[2]
 
-    # Only check inside the tile field gap (X: -45.6 -> -34.4, Z: 135.0 -> 165.0)
     if not (-45.6 <= px <= -34.4 and 135.0 <= pz <= 165.0):
         return False
 
-    # Safe if player is airborne jumping high above the floor
-    if py > ground_y + 0.15:
+    if py > ground_y + 0.15:  # safe while airborne
         return False
 
-    # Check if player is standing on any active platform
     if not is_on_active_disappearing_tile(px, pz):
-        # Stepped on a vanished tile OR into the void gap!
         consecutive_lava_falls += 1
         trigger_hazard_alert("Fell into the void!")
         if consecutive_lava_falls >= 9:
             game_over = True
-        # Respawn safely on the solid entry walkway before the tile gap
-        player_pos = [-40.0, 0.0, 128.0]
+        player_pos = [-40.0, 0.0, 128.0]  # respawn at entry walkway
         player_yaw = 0.0
         is_jumping = False
         y_velocity = 0.0
@@ -1567,10 +1374,8 @@ def check_disappearing_floor():
     return False
 
 def update_player_physics():
-    """
-    Handles player jumping physics, gravity update, floor/stepping-box collision,
-    lava fall 3-strike detection, and disappearing floor hazard collision.
-    """
+    """Applies gravity/jump physics and checks all hazard collisions."""
+    
     global player_pos, is_jumping, y_velocity
     global consecutive_lava_falls, lava_alert_timer, hazard_alert_text, game_over
 
@@ -1578,24 +1383,20 @@ def update_player_physics():
         player_pos[1] += y_velocity
         y_velocity += gravity
 
-        # --- Landing on a stepping stone box ---
         if on_stepping_box() and y_velocity <= 0 and player_pos[1] <= STEP_TOP_Y:
             player_pos[1] = STEP_TOP_Y
             is_jumping = False
             y_velocity = 0.0
             return
 
-        # --- Sinking into ground ---
         if player_pos[1] <= ground_y:
             if in_lava_pit():
                 if not cheat_mode:
-                    # Fell into lava — penalise
                     consecutive_lava_falls += 1
                     trigger_hazard_alert("Fell into the lava!")
                     if consecutive_lava_falls >= 9:
                         game_over = True
-                    # Respawn at lava section entry
-                    player_pos = [40.0, 0.0, 65.0]
+                    player_pos = [40.0, 0.0, 65.0]  # respawn at lava section entry
                     player_yaw = 0.0
                 else:
                     player_pos[1] = ground_y
@@ -1604,10 +1405,8 @@ def update_player_physics():
             is_jumping = False
             y_velocity = 0.0
     else:
-        # On stepping box: keep player at box top height
         if on_stepping_box():
             player_pos[1] = STEP_TOP_Y
-        # Detect stepping outside rock size into lava while not jumping
         elif in_lava_pit():
             if not cheat_mode:
                 consecutive_lava_falls += 1
@@ -1621,24 +1420,16 @@ def update_player_physics():
         else:
             player_pos[1] = ground_y
 
-    # --- Check Disappearing Floor Hazard Collision ---
     check_disappearing_floor()
-
-    # --- Check Laser Beam Hazard Collision ---
     check_laser_collisions()
-
-    # --- Check Moving Wall Pinch/Crush Collision ---
     check_moving_wall_collisions()
 
-    # Tick alert display timer
     if lava_alert_timer > 0:
         lava_alert_timer -= 1
 
 def idle():
-    """
-    Idle Callback: Updates story typewriter, physics, scaffolding animations, and continuous mouse aiming.
-    Uses strictly allowlisted GLUT callbacks (glutDisplayFunc, glutIdleFunc, glutKeyboardFunc, glutSpecialFunc, glutMouseFunc).
-    """
+    """Idle callback: advances typewriter text, physics, animations, and mouse aiming."""
+    
     global story_timer, story_char_index, in_story_screen
     global moving_walls_offset, moving_walls_dir, platform_timer, disappearing_tiles_active
     global wall_invincibility_timer, game_paused, game_over
@@ -1646,7 +1437,7 @@ def idle():
 
     if in_story_screen:
         story_timer += 1
-        if story_timer % 2 == 0 and story_char_index < total_story_len:
+        if story_timer % 2 == 0 and story_char_index < total_story_len:  # typewriter speed
             story_char_index += 1
         glutPostRedisplay()
         return
@@ -1655,7 +1446,7 @@ def idle():
         glutPostRedisplay()
         return
 
-    # Update Mouse Movement Aiming (Seamless 3D Window-Aware Cursor Tracking from The House of the Jinns)
+    # Continuous mouse aiming via Win32 cursor tracking
     try:
         class _POINT(ctypes.Structure):
             _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
@@ -1666,7 +1457,6 @@ def idle():
             _pt = _POINT()
             ctypes.windll.user32.GetCursorPos(ctypes.byref(_pt))
             if ctypes.windll.user32.WindowFromPoint(_pt) == hwnd:
-                # Aggressively ensure cursor is hidden (from The House of the Jinns)
                 global is_cursor_hidden
                 if not is_cursor_hidden:
                     while ctypes.windll.user32.ShowCursor(False) >= 0:
@@ -1705,7 +1495,6 @@ def idle():
 
     update_player_physics()
 
-    # Tick wall invincibility blink timer
     if wall_invincibility_timer > 0:
         wall_invincibility_timer -= 1
 
@@ -1720,11 +1509,8 @@ def idle():
             idx = (platform_timer // 90) % len(disappearing_tiles_active)
             disappearing_tiles_active[idx] = not disappearing_tiles_active[idx]
 
-    # Stop the leg walk-cycle shortly after the player stops issuing move
-    # keypresses (movement is event-driven via keyboard_listener, not
-    # polled every frame, so OS key-repeat naturally leaves small gaps
-    # between move events while a key is held -- this threshold just needs
-    # to be a bit longer than that gap, not so long it looks like sliding).
+    # Halt walk animation a few ticks after movement keys stop firing.
+    # OS key-repeat leaves small gaps, so threshold must be > that gap.
     global _idle_ticks_since_move, is_walking
     if is_walking:
         _idle_ticks_since_move += 1
@@ -1734,10 +1520,7 @@ def idle():
     glutPostRedisplay()
 
 # -----------------------------------------------------------------------------
-# Input Event Handlers
-# -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# Input Event Handlers (Strictly Allowlisted Lab Callbacks)
+# Input & Collision
 # -----------------------------------------------------------------------------
 def is_valid_walkway_position(x, z):
     """
@@ -1748,40 +1531,15 @@ def is_valid_walkway_position(x, z):
     if -5.5 <= x <= 5.5 and 0.0 <= z <= 56.0:
         return True
 
-    # 2. Junction A (X: -5.5 -> 45.0, Z: 54.0 -> 65.2)
-    if -5.5 <= x <= 5.5 and 54.0 <= z <= 65.2:
-        return True
-    if 5.5 < x <= 45.0 and 54.8 <= z <= 65.2:
-        return True
-
-    # 3. Hazard Lava Pit Corridor (X: 34.8 -> 45.2, Z: 54.8 -> 125.2)
-    if 34.8 <= x <= 45.2 and 54.8 <= z <= 125.2:
-        return True
-
-    # 4. Junction B (X: -45.2 -> 45.2, Z: 114.8 -> 125.2)
-    if -45.2 <= x <= 45.2 and 114.8 <= z <= 125.2:
-        return True
-
-    # 5. Disappearing Floor Chamber (X: -45.2 -> -34.8, Z: 114.8 -> 185.2)
-    if -45.2 <= x <= -34.8 and 114.8 <= z <= 185.2:
-        return True
-
-    # 6. Junction C (X: -45.2 -> 25.2, Z: 174.8 -> 185.2)
-    if -45.2 <= x <= 25.2 and 174.8 <= z <= 185.2:
-        return True
-
-    # 7. Laser Gauntlet Corridor (X: 14.8 -> 25.2, Z: 174.8 -> 245.2)
-    if 14.8 <= x <= 25.2 and 174.8 <= z <= 245.2:
-        return True
-
-    # 8. Junction D (X: 14.8 -> 75.2, Z: 234.8 -> 245.2)
-    if 14.8 <= x <= 75.2 and 234.8 <= z <= 245.2:
-        return True
-
-    # 9. Moving Walls & Exit Chamber (X: 64.8 -> 75.2, Z: 234.8 -> 339.6)
-    if 64.8 <= x <= 75.2 and 234.8 <= z <= 339.6:
-        return True
-
+    if -5.5 <= x <= 5.5 and 54.0 <= z <= 65.2:        return True  # junction A
+    if 5.5 < x <= 45.0 and 54.8 <= z <= 65.2:          return True
+    if 34.8 <= x <= 45.2 and 54.8 <= z <= 125.2:       return True  # lava corridor
+    if -45.2 <= x <= 45.2 and 114.8 <= z <= 125.2:     return True  # junction B
+    if -45.2 <= x <= -34.8 and 114.8 <= z <= 185.2:    return True  # disappearing floor
+    if -45.2 <= x <= 25.2 and 174.8 <= z <= 185.2:     return True  # junction C
+    if 14.8 <= x <= 25.2 and 174.8 <= z <= 245.2:      return True  # laser gauntlet
+    if 14.8 <= x <= 75.2 and 234.8 <= z <= 245.2:      return True  # junction D
+    if 64.8 <= x <= 75.2 and 234.8 <= z <= 339.6:      return True  # exit chamber
     return False
 
 PLAYER_RADIUS = 0.42  # Collision radius to prevent phasing through walls
@@ -1851,10 +1609,8 @@ def resolve_ledge_collision(x, z, r=PLAYER_RADIUS):
     return x, z
 
 def try_move_player(dx, dz):
-    """
-    Attempts to move player by (dx, dz) with smooth wall & pillar sliding and collision radius.
-    Prevents player from phasing through any wall or pillar.
-    """
+    """Moves the player by (dx, dz) with wall/pillar sliding collision."""
+    
     global walk_cycle_phase, is_walking, _idle_ticks_since_move
 
     new_x = player_pos[0] + dx
@@ -1864,12 +1620,7 @@ def try_move_player(dx, dz):
     r = PLAYER_RADIUS
 
     def pos_ok(x, z):
-        """Check all radius points to prevent wall, pillar, and ledge phasing."""
-        if collides_with_pillar(x, z, r):
-            return False
-        if collides_with_wall(x, z, r):
-            return False
-        if collides_with_ledge(x, z, r):
+        if collides_with_pillar(x, z, r) or collides_with_wall(x, z, r) or collides_with_ledge(x, z, r):
             return False
         return (is_valid_walkway_position(x, z) and
                 is_valid_walkway_position(x - r, z) and
@@ -1877,21 +1628,18 @@ def try_move_player(dx, dz):
                 is_valid_walkway_position(x, z - r) and
                 is_valid_walkway_position(x, z + r))
 
-    # 1. Try full movement
     if pos_ok(new_x, new_z):
         player_pos[0] = new_x
         player_pos[2] = new_z
         moved = True
-    # 2. Slide along X axis only
-    elif pos_ok(new_x, player_pos[2]):
+    elif pos_ok(new_x, player_pos[2]):  # slide along X
         player_pos[0] = new_x
         moved = True
-    # 3. Slide along Z axis only
-    elif pos_ok(player_pos[0], new_z):
+    elif pos_ok(player_pos[0], new_z):  # slide along Z
         player_pos[2] = new_z
         moved = True
 
-    # Extra safety: enforce solid pillar and ledge separation so player can never glitch inside
+    # Final push-out to prevent glitching inside pillars or ledges
     player_pos[0], player_pos[2] = resolve_pillar_collision(player_pos[0], player_pos[2], r)
     player_pos[0], player_pos[2] = resolve_ledge_collision(player_pos[0], player_pos[2], r)
 
@@ -1901,10 +1649,8 @@ def try_move_player(dx, dz):
         _idle_ticks_since_move = 0
 
 def reset_game():
-    """
-    Restores player position, facing angle, physics state, hazard counters, alerts,
-    and game over/paused states back to initial start level defaults.
-    """
+    """Resets all player, physics, and hazard state to initial level defaults."""
+    
     global player_pos, player_yaw, camera_yaw, player_pitch, crouching, first_person, is_jumping, y_velocity
     global consecutive_lava_falls, lava_alert_timer, hazard_alert_text
     global consecutive_wall_hits, wall_invincibility_timer, cheat_mode, game_over, game_paused
@@ -1936,9 +1682,8 @@ def reset_game():
     moving_walls_dir = 1.0
 
 def keyboard_listener(key, x, y):
-    """
-    Handles WASD, Spacebar, C, V, P, M, T, R, and ESC keys (glutKeyboardFunc).
-    """
+    """Keyboard input handler: WASD move, Space jump, Ctrl crouch, C cheat, P pause, V camera."""
+    
     global in_story_screen, player_pos, player_yaw, camera_yaw, crouching, first_person, anim_moving_walls, anim_disappearing_floor
     global is_jumping, y_velocity, game_paused
     global consecutive_lava_falls, lava_alert_timer, game_over
@@ -1949,32 +1694,27 @@ def keyboard_listener(key, x, y):
     except:
         ch = str(key).lower()
 
-    # Story screen skip / start transition
     if in_story_screen:
         if ch in (' ', '\r', '\n') or key in (b' ', b'\r', b'\n'):
             in_story_screen = False
             glutPostRedisplay()
         return
 
-    # Game Restart: R Key (r / R) — Always active (Game Over, Paused, or Playing)
     if ch == 'r':
         reset_game()
         glutPostRedisplay()
         return
 
-    # God Mode / Invincibility Cheat Toggle: C Key (c/C)
     if ch == 'c':
         cheat_mode = not cheat_mode
         glutPostRedisplay()
         return
 
-    # Pause Toggle: P Key
     if ch == 'p':
         game_paused = not game_paused
         glutPostRedisplay()
         return
 
-    # ESC / Q Key to Exit
     if key == b'\x1b' or ch == 'q':
         try:
             glutLeaveMainLoop()
@@ -1986,37 +1726,26 @@ def keyboard_listener(key, x, y):
 
     rad = math.radians(camera_yaw)
 
-    # Movement: W (Forward), S (Backward) along camera orbit angle
     if ch == 'w':
         player_yaw = camera_yaw
         try_move_player(math.sin(rad) * player_speed, math.cos(rad) * player_speed)
     elif ch == 's':
         player_yaw = (camera_yaw + 180.0) % 360.0
         try_move_player(-math.sin(rad) * player_speed, -math.cos(rad) * player_speed)
-
-    # Strafe: A (Left), D (Right)
     elif ch == 'a':
         player_yaw = (camera_yaw + 90.0) % 360.0
         try_move_player(math.sin(rad + math.pi/2.0) * player_speed, math.cos(rad + math.pi/2.0) * player_speed)
     elif ch == 'd':
         player_yaw = (camera_yaw - 90.0) % 360.0
         try_move_player(math.sin(rad - math.pi/2.0) * player_speed, math.cos(rad - math.pi/2.0) * player_speed)
-
-    # Jump Action: Spacebar (b' ' / 0x20)
     elif ch == ' ' or key == b' ':
         if not is_jumping:
             is_jumping = True
             y_velocity = jump_strength
-
-    # Camera Switch: V Key
     elif ch == 'v':
         first_person = not first_person
-
-    # Crouch Toggle: X, Z keys
     elif ch in ('x', 'z') or key in (b'x', b'z'):
         crouching = not crouching
-
-    # Demo Toggles: M (Moving Walls), T (Platforms)
     elif ch == 'm':
         anim_moving_walls = not anim_moving_walls
     elif ch == 't':
@@ -2025,19 +1754,15 @@ def keyboard_listener(key, x, y):
     glutPostRedisplay()
 
 def special_key_listener(key, x, y):
-    """
-    Special keys listener (glutSpecialFunc).
-    Supports Left/Right Ctrl and Shift keys for toggling crouching.
-    """
+    """Special keys: Ctrl/Shift toggle crouch."""
     global crouching
-    if key in (114, 115, 112, 113):  # GLUT_KEY_CTRL_L, GLUT_KEY_CTRL_R, GLUT_KEY_SHIFT_L, GLUT_KEY_SHIFT_R
+    if key in (114, 115, 112, 113):  # Ctrl-L, Ctrl-R, Shift-L, Shift-R
         crouching = not crouching
         glutPostRedisplay()
 
 def mouse_listener(button, state, x, y):
-    """
-    Handles mouse clicks (Right Click toggles Camera view) (glutMouseFunc).
-    """
+    """Mouse click: Right-click toggles camera view."""
+    
     global first_person
     if state == GLUT_DOWN:
         if button == GLUT_RIGHT_BUTTON:
@@ -2069,7 +1794,7 @@ def passive_motion(x, y):
     mouse_motion(x, y)
 
 # -----------------------------------------------------------------------------
-# Main Function Entry Point
+# Entry Point
 # -----------------------------------------------------------------------------
 def main():
     glutInit(sys.argv)
@@ -2080,17 +1805,11 @@ def main():
 
     load_character_model()
 
-    # Register 100% Allowlisted Lab Callbacks Only
     glutDisplayFunc(display)
     glutIdleFunc(idle)
     glutKeyboardFunc(keyboard_listener)
     glutSpecialFunc(special_key_listener)
     glutMouseFunc(mouse_listener)
-
-    print("=================================================================")
-    print(" '9 Lives' - Level 1: Fully Connected Backrooms Maze Arena")
-    print(" Sole Active Character: 'tung tung tung sahur'")
-    print("=================================================================")
 
     glutMainLoop()
 
