@@ -24,6 +24,7 @@ Features:
 
 import sys
 import math
+import time
 import random
 import ctypes
 from OpenGL.GL import *
@@ -99,9 +100,9 @@ active_weapon = "gun"
 evil_larry_pos      = [0.0, 0.0, 0.0]
 evil_larry_yaw      = 180.0
 EVIL_LARRY_MAX_SHIELD = 500.0
-EVIL_LARRY_MAX_HP     = 2000.0
+EVIL_LARRY_MAX_HP     = 1400.0
 evil_larry_shield     = 500.0
-evil_larry_hp         = 2000.0
+evil_larry_hp         = 1400.0
 evil_larry_shield_broken = False
 evil_larry_speed      = 0.52
 evil_larry_hit_flash  = 0
@@ -116,6 +117,20 @@ def resolve_pillar_collisions(nx, nz):
         ang = 2 * math.pi * k / OUTER_COUNT
         px = OUTER_RING_R * math.cos(ang)
         pz = OUTER_RING_R * math.sin(ang)
+
+        # 1. Square base plinth collision (half-width 24.8 + player collision radius ~8.2 = 33.0)
+        box_half = 33.0
+        dx = nx - px
+        dz = nz - pz
+        if abs(dx) < box_half and abs(dz) < box_half:
+            overlap_x = box_half - abs(dx)
+            overlap_z = box_half - abs(dz)
+            if overlap_x < overlap_z:
+                nx = px + math.copysign(box_half, dx if dx != 0.0 else 1.0)
+            else:
+                nz = pz + math.copysign(box_half, dz if dz != 0.0 else 1.0)
+
+        # 2. Cylindrical body collision
         d = math.sqrt((nx - px)**2 + (nz - pz)**2)
         min_d = OUTER_BASE_R + 12.0
         if d < min_d:
@@ -193,12 +208,55 @@ class SmallLarry:
             self.hit_flash -= 1
 
 # =============================================================================
+#  ZOMBIE MINIONS (Emerge after Evil Larry's Shield Breaks - Max 4 on screen, 20 total)
+# =============================================================================
+MAX_ACTIVE_ZOMBIES = 4
+TOTAL_ZOMBIES_ALLOWED = 20
+zombies_spawned_count = 0
+zombies = []
+zombie_spawn_cooldown = 0
+
+class Zombie:
+    """Zombie enemy that emerges after Evil Larry's shield breaks and pursues the player."""
+    def __init__(self, x, z):
+        self.pos = [x, 0.0, z]
+        self.x = x
+        self.y = 0.0
+        self.z = z
+        self.yaw = 0.0
+        self.alive = True
+        self.hp = 2           # Killed if hit 2 times
+        self.hit_flash = 0
+        self.walk_anim = random.uniform(0.0, 6.28)
+        self.speed = 0.42     # Reduced, manageable zombie pursuit speed toward player
+
+    def update(self, player_x, player_z):
+        if not self.alive:
+            return
+
+        self.walk_anim += 0.15
+        dx = player_x - self.x
+        dz = player_z - self.z
+        dist = math.sqrt(dx * dx + dz * dz)
+
+        if dist > 0.1:
+            nx = self.x + (dx / dist) * self.speed
+            nz = self.z + (dz / dist) * self.speed
+            self.x, self.z = resolve_pillar_collisions(nx, nz)
+            self.pos[0] = self.x
+            self.pos[2] = self.z
+            self.yaw = math.degrees(math.atan2(dx, dz))
+
+        if self.hit_flash > 0:
+            self.hit_flash -= 1
+
+# =============================================================================
 #  WEAPONS & PROJECTILES (Bombs & Catnip)
 # =============================================================================
 bombs = []
 catnips = []
 weapon_cooldown = 0
-WEAPON_COOLDOWN_MAX = 14
+WEAPON_COOLDOWN_MAX = 18
 BOMB_DAMAGE = 15.0
 
 class Bomb:
@@ -209,7 +267,7 @@ class Bomb:
         self.vx = vx
         self.vy = vy
         self.vz = vz
-        self.life = 130
+        self.life = 180
         self.alive = True
         self.rot = 0.0
 
@@ -219,8 +277,8 @@ class Bomb:
         self.x += self.vx
         self.y += self.vy
         self.z += self.vz
-        self.vy += -0.048
-        self.rot += 14.0
+        self.vy += -0.062
+        self.rot = (self.rot + 8.0) % 360.0
         self.life -= 1
         if self.life <= 0:
             self.alive = False
@@ -233,7 +291,7 @@ class CatnipProjectile:
         self.vx = vx
         self.vy = vy
         self.vz = vz
-        self.life = 150
+        self.life = 180
         self.alive = True
         self.rot = 0.0
 
@@ -243,8 +301,8 @@ class CatnipProjectile:
         self.x += self.vx
         self.y += self.vy
         self.z += self.vz
-        self.vy += -0.038
-        self.rot += 12.0
+        self.vy += -0.055
+        self.rot = (self.rot + 8.0) % 360.0
         self.life -= 1
         if self.life <= 0:
             self.alive = False
@@ -669,6 +727,58 @@ def draw_large_pillar():
     glVertex3f( cap_w, cap_w,cap_z+cap_h); glVertex3f(-cap_w, cap_w,cap_z+cap_h)
     glEnd()
 
+COLOR_GUN_BODY   = (0.28, 0.28, 0.32)
+COLOR_GUN_ACCENT = (0.95, 0.45, 0.05)
+COLOR_CATNIP_BLUE = (0.0, 0.85, 1.0)
+COLOR_CATNIP_AURA = (0.2, 0.4, 0.9)
+
+def draw_3d_gun_model():
+    glPushMatrix()
+    glColor3f(*COLOR_GUN_BODY)
+    glPushMatrix()
+    glScalef(0.16, 0.24, 0.65)
+    glutSolidCube(1.0)
+    glPopMatrix()
+
+    glColor3f(0.15, 0.15, 0.18)
+    glPushMatrix()
+    glTranslatef(0.0, -0.22, -0.15)
+    glRotatef(20, 1, 0, 0)
+    glScalef(0.11, 0.30, 0.15)
+    glutSolidCube(1.0)
+    glPopMatrix()
+
+    glColor3f(*COLOR_GUN_ACCENT)
+    glPushMatrix()
+    glTranslatef(0.0, 0.04, 0.28)
+    gluCylinder(Q(), 0.09, 0.09, 0.48, 14, 4)
+    glPopMatrix()
+
+    glColor3f(1.0, 0.3, 0.0)
+    glPushMatrix()
+    glTranslatef(0.0, 0.04, 0.76)
+    glutSolidCube(0.18)
+    glPopMatrix()
+
+    glPopMatrix()
+
+def draw_3d_catnip_model():
+    glPushMatrix()
+    glColor3f(*COLOR_CATNIP_BLUE)
+    glPushMatrix()
+    glScalef(0.24, 0.24, 0.24)
+    glutSolidCube(1.0)
+    glPopMatrix()
+
+    glColor3f(*COLOR_CATNIP_AURA)
+    glPushMatrix()
+    glRotatef(45, 1, 1, 0)
+    glScalef(0.16, 0.16, 0.16)
+    glutSolidCube(1.0)
+    glPopMatrix()
+
+    glPopMatrix()
+
 # =============================================================================
 #  CHARACTER 3D MODELS
 # =============================================================================
@@ -761,8 +871,25 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
         glutSolidCube(100)
         glPopMatrix()
 
+    def draw_held_weapon():
+        if active_weapon == "gun":
+            glPushMatrix()
+            glTranslatef(38.5, 30, 70)
+            glRotatef(-90, 1, 0, 0)
+            glRotatef(180, 0, 0, 1)
+            glScalef(120.0, 120.0, 120.0)
+            draw_3d_gun_model()
+            glPopMatrix()
+        elif active_weapon == "catnip":
+            glPushMatrix()
+            glTranslatef(38.5, 30, 70)
+            glScalef(140.0, 140.0, 140.0)
+            draw_3d_catnip_model()
+            glPopMatrix()
+
     if not is_front:
         draw_face_details()
+        draw_held_weapon()
 
     # Main Body
     glPushMatrix()
@@ -774,6 +901,7 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
 
     if is_front:
         draw_face_details()
+        draw_held_weapon()
 
     # Arms (natural walking swing, referenced from The House of the Jinns)
     arm_swing_amplitude = 22.0
@@ -781,7 +909,7 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
     right_arm_angle = 0.0
     if is_moving:
         left_arm_angle = -math.sin(walk_anim_phase) * arm_swing_amplitude
-        if arm_throw_timer <= 0:
+        if arm_throw_timer <= 0 and not (active_weapon in ("gun", "catnip")):
             right_arm_angle = math.sin(walk_anim_phase) * arm_swing_amplitude
 
     # Left Arm
@@ -799,7 +927,7 @@ def draw_tung_tung_sahur(cam_x=0.0, cam_z=0.0):
     glColor3f(*c_body)
     glTranslatef(38.5, 0, 135)
     if arm_throw_timer > 0:
-        throw_angle = math.sin((14.0 - arm_throw_timer) / 14.0 * math.pi) * 55.0
+        throw_angle = math.sin((18.0 - arm_throw_timer) / 18.0 * math.pi) * 55.0
         glRotatef(-throw_angle, 1, 0, 0)
     else:
         glRotatef(right_arm_angle, 1, 0, 0)
@@ -1062,6 +1190,170 @@ def draw_single_small_larry(sl):
 
     glPopMatrix()
 
+def draw_single_zombie(z):
+    """Renders 3D Zombie character model from Characters/zombie.py with walk animations."""
+    if not z.alive:
+        return
+
+    glPushMatrix()
+    glTranslatef(z.x, z.y, z.z)
+    glRotatef(z.yaw + 180.0, 0, 1, 0)
+    glRotatef(-90.0, 1, 0, 0)
+
+    scale_zombie = 0.135
+    glScalef(scale_zombie, scale_zombie, scale_zombie)
+
+    if z.hit_flash > 0:
+        c_skin = (1.0, 0.35, 0.35)
+        c_hair = (0.7, 0.1, 0.1)
+        c_eye_nose = (0.2, 0.0, 0.0)
+        c_shirt = (1.0, 0.5, 0.5)
+        c_pants = (0.8, 0.3, 0.3)
+        c_shoes = (0.5, 0.2, 0.2)
+    else:
+        c_skin = (112/255, 168/255, 59/255)
+        c_hair = (46/255, 94/255, 33/255)
+        c_eye_nose = (18/255, 18/255, 18/255)
+        c_shirt = (0/255, 168/255, 222/255)
+        c_pants = (36/255, 68/255, 184/255)
+        c_shoes = (64/255, 64/255, 64/255)
+
+    # 1. Head
+    glPushMatrix()
+    glColor3f(*c_skin)
+    glTranslatef(0, 0, 140)
+    glScalef(0.6, 0.6, 0.6)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    # Hair / Trim
+    glPushMatrix()
+    glColor3f(*c_hair)
+    glTranslatef(0, 0, 162)
+    glScalef(0.64, 0.64, 0.2)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    # Left Eye
+    glPushMatrix()
+    glColor3f(*c_eye_nose)
+    glTranslatef(-14, 31, 142)
+    glScalef(0.18, 0.04, 0.08)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    # Right Eye
+    glPushMatrix()
+    glColor3f(*c_eye_nose)
+    glTranslatef(14, 31, 142)
+    glScalef(0.18, 0.04, 0.08)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    # Nose Block
+    glPushMatrix()
+    glColor3f(*c_hair)
+    glTranslatef(0, 31, 134)
+    glScalef(0.14, 0.04, 0.08)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    # 2. Torso
+    glPushMatrix()
+    glColor3f(*c_shirt)
+    glTranslatef(0, 0, 80)
+    glScalef(0.6, 0.3, 0.6)
+    glutSolidCube(100)
+    glPopMatrix()
+
+    # Walking animation angles
+    leg_swing = math.sin(z.walk_anim) * 26.0
+    arm_swing = math.sin(z.walk_anim) * 16.0
+
+    # 3. Arms (reaching forward with subtle menacing zombie swing)
+    # Left Arm
+    glPushMatrix()
+    glTranslatef(-39.8, 0, 92)
+    glRotatef(arm_swing, 1, 0, 0)
+    # Forearm & Hand
+    glPushMatrix()
+    glColor3f(*c_skin)
+    glTranslatef(0, 28, 0)
+    glScalef(0.2, 0.45, 0.24)
+    glutSolidCube(100)
+    glPopMatrix()
+    # Sleeve
+    glPushMatrix()
+    glColor3f(*c_shirt)
+    glTranslatef(0, 5, 0)
+    glScalef(0.21, 0.4, 0.25)
+    glutSolidCube(100)
+    glPopMatrix()
+    glPopMatrix()
+
+    # Right Arm
+    glPushMatrix()
+    glTranslatef(39.8, 0, 92)
+    glRotatef(-arm_swing, 1, 0, 0)
+    # Forearm & Hand
+    glPushMatrix()
+    glColor3f(*c_skin)
+    glTranslatef(0, 28, 0)
+    glScalef(0.2, 0.45, 0.24)
+    glutSolidCube(100)
+    glPopMatrix()
+    # Sleeve
+    glPushMatrix()
+    glColor3f(*c_shirt)
+    glTranslatef(0, 5, 0)
+    glScalef(0.21, 0.4, 0.25)
+    glutSolidCube(100)
+    glPopMatrix()
+    glPopMatrix()
+
+    # 4. Legs & 5. Feet
+    # Left Leg & Foot
+    glPushMatrix()
+    glTranslatef(-16, 0, 55)
+    glRotatef(leg_swing, 1, 0, 0)
+    glTranslatef(0, 0, -25)
+    # Pants
+    glPushMatrix()
+    glColor3f(*c_pants)
+    glScalef(0.26, 0.26, 0.4)
+    glutSolidCube(100)
+    glPopMatrix()
+    # Shoe
+    glPushMatrix()
+    glColor3f(*c_shoes)
+    glTranslatef(0, 2, -25)
+    glScalef(0.26, 0.3, 0.1)
+    glutSolidCube(100)
+    glPopMatrix()
+    glPopMatrix()
+
+    # Right Leg & Foot
+    glPushMatrix()
+    glTranslatef(16, 0, 55)
+    glRotatef(-leg_swing, 1, 0, 0)
+    glTranslatef(0, 0, -25)
+    # Pants
+    glPushMatrix()
+    glColor3f(*c_pants)
+    glScalef(0.26, 0.26, 0.4)
+    glutSolidCube(100)
+    glPopMatrix()
+    # Shoe
+    glPushMatrix()
+    glColor3f(*c_shoes)
+    glTranslatef(0, 2, -25)
+    glScalef(0.26, 0.3, 0.1)
+    glutSolidCube(100)
+    glPopMatrix()
+    glPopMatrix()
+
+    glPopMatrix()
+
 def draw_bombs():
     for b in bombs:
         if not b.alive:
@@ -1158,19 +1450,97 @@ def draw_hairballs_and_puddles():
 
 def draw_pounce_effects():
     if pounce_state in ['WINDUP', 'AIR']:
-        glBegin(GL_LINES)
-        glColor3f(1.0, 0.15, 0.15)
-        segs = 36
-        r = 38.0
+        tx, tz = pounce_target[0], pounce_target[1]
+        t = time.time()
+        pulse = 0.5 + 0.5 * math.sin(t * 14.0)
+        warning_y = 1.4  # Float clearly above ground to prevent z-fighting
+
+        # 1. Glowing Floor Hazard Disc (Alternating high-contrast hazard sectors)
+        glBegin(GL_TRIANGLES)
+        segs = 32
+        disc_r = 38.0
         for i in range(segs):
             a1 = 2 * math.pi * i / segs
             a2 = 2 * math.pi * (i + 1) / segs
-            glVertex3f(pounce_target[0] + math.cos(a1) * r, 0.6, pounce_target[1] + math.sin(a1) * r)
-            glVertex3f(pounce_target[0] + math.cos(a2) * r, 0.6, pounce_target[1] + math.sin(a2) * r)
-        glVertex3f(pounce_target[0] - 15, 0.6, pounce_target[1] - 15)
-        glVertex3f(pounce_target[0] + 15, 0.6, pounce_target[1] + 15)
-        glVertex3f(pounce_target[0] - 15, 0.6, pounce_target[1] + 15)
-        glVertex3f(pounce_target[0] + 15, 0.6, pounce_target[1] - 15)
+            if i % 2 == 0:
+                glColor3f(0.85 + 0.15 * pulse, 0.25 * pulse, 0.05)
+            else:
+                glColor3f(0.40 + 0.20 * pulse, 0.05, 0.02)
+            glVertex3f(tx, warning_y, tz)
+            glVertex3f(tx + math.cos(a1) * disc_r, warning_y, tz + math.sin(a1) * disc_r)
+            glVertex3f(tx + math.cos(a2) * disc_r, warning_y, tz + math.sin(a2) * disc_r)
+        glEnd()
+
+        # 2. Concentric Warning Rings (Bold Multi-Layer Perimeter & Internal Rings)
+        glBegin(GL_LINES)
+        # Bold Outer Perimeter (radius 38.0, 3 concentric lines for thickness)
+        for dr in (-1.0, 0.0, 1.0):
+            r = 38.0 + dr
+            for i in range(segs):
+                a1 = 2 * math.pi * i / segs
+                a2 = 2 * math.pi * (i + 1) / segs
+                glColor3f(1.0, 0.95, 0.15)  # Blazing golden warning border
+                glVertex3f(tx + math.cos(a1) * r, warning_y + 0.1, tz + math.sin(a1) * r)
+                glVertex3f(tx + math.cos(a2) * r, warning_y + 0.1, tz + math.sin(a2) * r)
+
+        # Mid Danger Ring (radius 24.0)
+        for i in range(segs):
+            a1 = 2 * math.pi * i / segs
+            a2 = 2 * math.pi * (i + 1) / segs
+            glColor3f(1.0, 0.45 + 0.35 * pulse, 0.05)
+            glVertex3f(tx + math.cos(a1) * 24.0, warning_y + 0.1, tz + math.sin(a1) * 24.0)
+            glVertex3f(tx + math.cos(a2) * 24.0, warning_y + 0.1, tz + math.sin(a2) * 24.0)
+
+        # Core Bullseye Ring (radius 10.0)
+        for i in range(segs):
+            a1 = 2 * math.pi * i / segs
+            a2 = 2 * math.pi * (i + 1) / segs
+            glColor3f(1.0, 0.1, 0.1)
+            glVertex3f(tx + math.cos(a1) * 10.0, warning_y + 0.1, tz + math.sin(a1) * 10.0)
+            glVertex3f(tx + math.cos(a2) * 10.0, warning_y + 0.1, tz + math.sin(a2) * 10.0)
+
+        # Expanding Ripple Wave from center
+        wave_r = (t * 50.0) % 38.0
+        wave_fade = 1.0 - (wave_r / 38.0)
+        glColor3f(1.0 * wave_fade, 0.9 * wave_fade, 0.2 * wave_fade)
+        for i in range(segs):
+            a1 = 2 * math.pi * i / segs
+            a2 = 2 * math.pi * (i + 1) / segs
+            glVertex3f(tx + math.cos(a1) * wave_r, warning_y + 0.15, tz + math.sin(a1) * wave_r)
+            glVertex3f(tx + math.cos(a2) * wave_r, warning_y + 0.15, tz + math.sin(a2) * wave_r)
+
+        # 3. Dynamic Crosshairs & Hazard Spoke Markers
+        glColor3f(1.0, 0.95, 0.2)
+        # Cardinal X axis & Z axis lines
+        glVertex3f(tx - 38.0, warning_y + 0.15, tz); glVertex3f(tx + 38.0, warning_y + 0.15, tz)
+        glVertex3f(tx, warning_y + 0.15, tz - 38.0); glVertex3f(tx, warning_y + 0.15, tz + 38.0)
+        # Tick marks along axes
+        for dist_mark in (-24.0, -10.0, 10.0, 24.0):
+            glVertex3f(tx + dist_mark, warning_y + 0.15, tz - 3.5); glVertex3f(tx + dist_mark, warning_y + 0.15, tz + 3.5)
+            glVertex3f(tx - 3.5, warning_y + 0.15, tz + dist_mark); glVertex3f(tx + 3.5, warning_y + 0.15, tz + dist_mark)
+
+        # Rotating Hazard Diagonal Cross
+        rot = t * 2.2
+        for rot_offset in (0, math.pi / 2.0):
+            ra = rot + rot_offset
+            dx = math.cos(ra) * 32.0
+            dz = math.sin(ra) * 32.0
+            glColor3f(1.0, 0.3 * pulse, 0.05)
+            glVertex3f(tx - dx, warning_y + 0.15, tz - dz)
+            glVertex3f(tx + dx, warning_y + 0.15, tz + dz)
+
+        # 4. Vertical Beacon Guidance Beacons (Orbital Danger Telegraph Pillars)
+        # Center high beacon
+        glColor3f(1.0, 0.9, 0.2)
+        glVertex3f(tx, warning_y, tz); glVertex3f(tx, warning_y + 55.0, tz)
+        # 8 Perimeter Beams
+        beam_h = 28.0 + 8.0 * pulse
+        for k in range(8):
+            ba = 2 * math.pi * k / 8
+            bx = tx + math.cos(ba) * 38.0
+            bz = tz + math.sin(ba) * 38.0
+            glColor3f(1.0, 0.5 + 0.5 * pulse, 0.1)
+            glVertex3f(bx, warning_y, bz); glVertex3f(bx, warning_y + beam_h, bz)
         glEnd()
 
     if pounce_shockwave_life > 0:
@@ -1263,6 +1633,8 @@ def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(1.0, 1.0, 1.0)):
     glMatrixMode(GL_MODELVIEW)
 
 def draw_crosshair():
+    if not first_person:
+        return
     cx, cy = WIN_W // 2, WIN_H // 2
     size = 10
     glMatrixMode(GL_PROJECTION)
@@ -1285,9 +1657,12 @@ def draw_crosshair():
     glMatrixMode(GL_MODELVIEW)
 
 def draw_hud():
-    # 1. Main Character Health Bar at BOTTOM LEFT corner (Level 3 Style)
+    # 1. Controls text at BOTTOM LEFT corner (matching all levels)
+    draw_text(15, 20, "WASD: Move | Mouse: Orbit Camera | Space: Jump | Ctrl/X: Crouch | V/RMB: 1st/3rd Person | P: Pause | C: God Mode | R: Reset", font=GLUT_BITMAP_HELVETICA_12)
+
+    # 2. Main Character Health Bar at BOTTOM LEFT corner (above controls)
     pw, ph = 220, 16
-    px, py = 25, 25
+    px, py = 25, 45
     player_pct = player_hits_left / float(MAX_PLAYER_HITS)
     draw_bar_2d(px, py, pw, ph, player_pct, (0.1, 0.9, 0.2), border_color=(0.9, 0.9, 0.9))
     draw_text(px + pw + 12, py + 1, f"LIVES: {player_hits_left}/{MAX_PLAYER_HITS}", color=(0.1, 0.9, 0.2), font=GLUT_BITMAP_HELVETICA_18)
@@ -1311,7 +1686,9 @@ def draw_hud():
     by_hp     = WIN_H - 45
     by_shield = WIN_H - 66
 
-    draw_text_bold(WIN_W // 2 - 55, by_name, 'EVIL LARRY', color=(1.0, 0.25, 0.25), font=GLUT_BITMAP_HELVETICA_18)
+    boss_title = 'EVIL LARRY'
+    btw = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in boss_title)
+    draw_text_bold((WIN_W - btw) // 2, by_name, boss_title, color=(1.0, 0.25, 0.25), font=GLUT_BITMAP_HELVETICA_18)
 
     # Top: Red HP
     hp_pct = evil_larry_hp / EVIL_LARRY_MAX_HP
@@ -1321,24 +1698,63 @@ def draw_hud():
     shield_pct = evil_larry_shield / EVIL_LARRY_MAX_SHIELD
     draw_bar_2d(bx, by_shield, bar_w, bar_h, shield_pct, (0.55, 0.54, 0.51), border_color=(0.9, 0.9, 0.9))
 
-    # 4. Boss MEOWWWW Text
+    # 4. Boss Extravagant Villain MEOW Warcry
     if meow_timer > 0:
-        draw_text_bold(WIN_W // 2 - 250, WIN_H // 2 + 55, 'MEOWWWWWWWWWWWW!!!!!!!!!!!!!!!!!!', color=(1.0, 0.15, 0.15), font=GLUT_BITMAP_HELVETICA_18)
+        warcry_str = "MEOWWWWWWWWWWWWWWWWWWWWWWWW!!!!!!!!!!!!!!!!!!"
+        tw = sum(glutBitmapWidth(GLUT_BITMAP_TIMES_ROMAN_24, ord(c)) for c in warcry_str)
+        # Dynamic centering with villainous screen-tremor shake
+        jitter_x = math.sin(meow_timer * 1.8) * 3.5
+        jitter_y = math.cos(meow_timer * 2.4) * 2.5
+        tx = (WIN_W - tw) // 2 + jitter_x
+        ty = WIN_H // 2 + 55 + jitter_y
+
+        # Extravagant backing demonic warcry banner
+        draw_bar_2d(tx - 32, ty - 12, tw + 64, 38, 1.0, (0.05, 0.01, 0.01), border_color=(0.9, 0.05, 0.05))
+        draw_bar_2d(tx - 34, ty - 14, tw + 68, 42, 0.0, (0.0, 0.0, 0.0), border_color=(0.5, 0.0, 0.0))
+
+        # Layer 1: Dark void shadow / outer drop aura
+        for odx, ody in [(-3, -3), (-3, 3), (3, -3), (3, 3), (0, -3), (0, 3), (-3, 0), (3, 0)]:
+            draw_text(tx + odx, ty + ody, warcry_str, color=(0.0, 0.0, 0.0), font=GLUT_BITMAP_TIMES_ROMAN_24)
+
+        # Layer 2: Blood-crimson demonic flame aura
+        for cdx, cdy in [(-2, -2), (-2, 2), (2, -2), (2, 2), (0, -2), (0, 2), (-2, 0), (2, 0)]:
+            draw_text(tx + cdx, ty + cdy, warcry_str, color=(0.88, 0.05, 0.05), font=GLUT_BITMAP_TIMES_ROMAN_24)
+
+        # Layer 3: Blazing fiery inferno inner aura
+        for fdx, fdy in [(-1, -1), (-1, 1), (1, -1), (1, 1), (0, -1), (0, 1), (-1, 0), (1, 0)]:
+            draw_text(tx + fdx, ty + fdy, warcry_str, color=(1.0, 0.4, 0.0), font=GLUT_BITMAP_TIMES_ROMAN_24)
+
+        # Layer 4: Intense molten gold / white-hot warcry core
+        draw_text(tx, ty, warcry_str, color=(1.0, 0.95, 0.4), font=GLUT_BITMAP_TIMES_ROMAN_24)
 
     # 5. Pause Banner
     if is_paused:
-        draw_text_bold(WIN_W // 2 - 120, WIN_H // 2 + 10, "=== GAME PAUSED ===", color=(1.0, 0.9, 0.1))
-        draw_text(WIN_W // 2 - 100, WIN_H // 2 - 20, "Press 'P' to Resume Combat", color=(1.0, 1.0, 1.0))
+        p1 = "=== GAME PAUSED ==="
+        p2 = "Press 'P' to Resume Combat"
+        w1 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in p1)
+        w2 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in p2)
+        draw_text_bold((WIN_W - w1) // 2, WIN_H // 2 + 10, p1, color=(1.0, 0.9, 0.1))
+        draw_text((WIN_W - w2) // 2, WIN_H // 2 - 20, p2, color=(1.0, 1.0, 1.0))
 
     # 6. End Game Messages
     if is_game_over:
-        draw_text_bold(WIN_W // 2 - 120, WIN_H // 2 + 25, 'MISSION FAILED!', color=(1.0, 0.1, 0.1), font=GLUT_BITMAP_HELVETICA_18)
-        draw_text_bold(WIN_W // 2 - 85, WIN_H // 2 - 15, 'Press R to retry.', color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
+        g1 = "MISSION FAILED!"
+        g2 = "Press R to retry."
+        w1 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in g1)
+        w2 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in g2)
+        draw_text_bold((WIN_W - w1) // 2, WIN_H // 2 + 25, g1, color=(1.0, 0.1, 0.1), font=GLUT_BITMAP_HELVETICA_18)
+        draw_text_bold((WIN_W - w2) // 2, WIN_H // 2 - 15, g2, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
 
     if is_level_cleared:
-        draw_text_bold(WIN_W // 2 - 145, WIN_H // 2 + 35, 'CONGRATULATIONS!!!', color=(0.2, 1.0, 0.4), font=GLUT_BITMAP_HELVETICA_18)
-        draw_text_bold(WIN_W // 2 - 340, WIN_H // 2 - 5, 'YOU HAVE DEFEATED EVIL LARRY AND SAVED THE WORLD!', color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
-        draw_text_bold(WIN_W // 2 - 105, WIN_H // 2 - 45, 'Press R to play again.', color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
+        c1 = "CONGRATULATIONS!!!"
+        c2 = "YOU HAVE DEFEATED EVIL LARRY AND SAVED THE WORLD!"
+        c3 = "Press R to play again."
+        w1 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in c1)
+        w2 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in c2)
+        w3 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in c3)
+        draw_text_bold((WIN_W - w1) // 2, WIN_H // 2 + 35, c1, color=(0.2, 1.0, 0.4), font=GLUT_BITMAP_HELVETICA_18)
+        draw_text_bold((WIN_W - w2) // 2, WIN_H // 2 - 5, c2, color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
+        draw_text_bold((WIN_W - w3) // 2, WIN_H // 2 - 45, c3, color=(1.0, 1.0, 1.0), font=GLUT_BITMAP_HELVETICA_18)
 
 # =============================================================================
 #  SPAWNING & COMBAT LOGIC
@@ -1354,6 +1770,26 @@ def spawn_one_small_larry():
     small_larrys.append(SmallLarry(sx, sz))
     small_larrys_spawned_count += 1
 
+def spawn_one_zombie():
+    """Spawns one Zombie when Evil Larry's shield is broken (max 4 active, max 20 total)."""
+    global zombies_spawned_count
+    if not evil_larry_shield_broken or evil_larry_hp <= 0 or is_level_cleared:
+        return
+    if zombies_spawned_count >= TOTAL_ZOMBIES_ALLOWED:
+        return
+    angle = random.uniform(0, 2 * math.pi)
+    dist = random.uniform(180.0, 440.0)
+    zx = math.cos(angle) * dist
+    zz = math.sin(angle) * dist
+    # Maintain safe initial distance from player on spawn
+    if math.sqrt((zx - player_pos[0])**2 + (zz - player_pos[2])**2) < 90.0:
+        zx = -zx
+        zz = -zz
+    zx, zz = resolve_pillar_collisions(zx, zz)
+    zombies.append(Zombie(zx, zz))
+    zombies_spawned_count += 1
+    explosions.append(Explosion(zx, 8.0, zz, max_r=18.0))
+
 def fire_weapon():
     global weapon_cooldown, arm_throw_timer
 
@@ -1361,19 +1797,22 @@ def fire_weapon():
         return
 
     weapon_cooldown = WEAPON_COOLDOWN_MAX
-    arm_throw_timer = 14
+    arm_throw_timer = 18
 
-    clamped_pitch = max(-10.0, min(25.0, player_pitch))
-    rad = math.radians(player_yaw)
+    # Smooth full-range pitch clamp identical to Level 2
+    pitch_val = player_pitch if first_person else -player_pitch
+    clamped_pitch = max(-15.0, min(50.0, pitch_val))
+    rad = math.radians(camera_yaw if first_person else player_yaw)
     rad_pitch = math.radians(clamped_pitch)
 
-    bx = player_pos[0] + math.sin(rad) * 8.0 + math.cos(rad) * 6.0
+    # Launch directly along player/camera forward direction (matching Level 2 aiming precision)
+    bx = player_pos[0] + math.sin(rad) * 8.0
     by = player_pos[1] + 16.0
-    bz = player_pos[2] + math.cos(rad) * 8.0 - math.sin(rad) * 6.0
+    bz = player_pos[2] + math.cos(rad) * 8.0
 
-    throw_speed = 5.2
+    throw_speed = 4.4
     vx = math.sin(rad) * math.cos(rad_pitch) * throw_speed
-    vy = math.sin(rad_pitch) * throw_speed + 0.35
+    vy = math.sin(rad_pitch) * throw_speed + 0.85
     vz = math.cos(rad) * math.cos(rad_pitch) * throw_speed
 
     if active_weapon == "gun":
@@ -1423,8 +1862,12 @@ def idle():
                 dy = _pt.y - win_cy
                 if dx != 0 or dy != 0:
                     mouse_sensitivity = 0.20
-                    camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
-                    player_pitch = max(-25.0, min(75.0, player_pitch + dy * mouse_sensitivity))
+                    if first_person:
+                        camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
+                        player_pitch = max(-65.0, min(65.0, player_pitch - dy * mouse_sensitivity))
+                    else:
+                        camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
+                        player_pitch = max(-25.0, min(75.0, player_pitch + dy * mouse_sensitivity))
                     ctypes.windll.user32.SetCursorPos(win_cx, win_cy)
             else:
                 if is_cursor_hidden:
@@ -1640,6 +2083,30 @@ def idle():
                 explosions.append(Explosion(sl.x, 10.0, sl.z, max_r=20.0))
         small_larrys.clear()
 
+    # Zombie Minions Spawn & Pursuit AI (Active after Evil Larry's Shield breaks until defeated, max 4 on screen, 20 total)
+    global zombie_spawn_cooldown
+    if evil_larry_shield_broken and evil_larry_hp > 0 and not is_level_cleared:
+        active_zombies = [z for z in zombies if z.alive]
+        if len(active_zombies) < MAX_ACTIVE_ZOMBIES and zombies_spawned_count < TOTAL_ZOMBIES_ALLOWED:
+            zombie_spawn_cooldown -= 1
+            if zombie_spawn_cooldown <= 0:
+                spawn_one_zombie()
+                zombie_spawn_cooldown = 40
+
+    for z in list(zombies):
+        if not z.alive:
+            continue
+        z.update(player_pos[0], player_pos[2])
+
+        if player_invulnerable_timer <= 0:
+            d_z = math.sqrt((player_pos[0] - z.x)**2 + (player_pos[2] - z.z)**2)
+            if d_z < 14.0:
+                if not cheat_mode:
+                    player_hits_left -= 1
+                    player_invulnerable_timer = 60
+                    if player_hits_left <= 0:
+                        is_game_over = True
+
     # Evil Larry Boss AI
     if evil_larry_hp > 0:
         dx = player_pos[0] - evil_larry_pos[0]
@@ -1722,13 +2189,19 @@ def idle():
                     evil_larry_hp = max(0.0, evil_larry_hp - BOMB_DAMAGE)
                     if evil_larry_hp <= 0:
                         is_level_cleared = True
+                        # Eliminate all remaining zombies when Evil Larry is defeated
+                        for rem_z in zombies:
+                            if rem_z.alive:
+                                rem_z.alive = False
+                                explosions.append(Explosion(rem_z.x, 10.0, rem_z.z, max_r=20.0))
+                        zombies.clear()
                         for _ in range(8):
                             rx = evil_larry_pos[0] + random.uniform(-30, 30)
                             ry = random.uniform(10, 60)
                             rz = evil_larry_pos[2] + random.uniform(-30, 30)
                             explosions.append(Explosion(rx, ry, rz, max_r=30.0))
 
-        if not exploded:
+        if not exploded and not evil_larry_shield_broken:
             for sl in small_larrys:
                 if not sl.alive:
                     continue
@@ -1746,6 +2219,22 @@ def idle():
                             spawn_one_small_larry()
                     break
 
+        if not exploded and evil_larry_shield_broken:
+            for z in zombies:
+                if not z.alive:
+                    continue
+                d_z = math.sqrt((b.x - z.x)**2 + (b.z - z.z)**2)
+                if d_z < 16.0 and b.y < 30.0:
+                    exploded = True
+                    z.hp -= 1
+                    z.hit_flash = 14
+                    explosions.append(Explosion(b.x, b.y, b.z, max_r=16.0))
+                    if z.hp <= 0:
+                        z.alive = False
+                        score += 1
+                        explosions.append(Explosion(z.x, 10.0, z.z, max_r=24.0))
+                    break
+
         if exploded and b in bombs:
             bombs.remove(b)
 
@@ -1761,7 +2250,7 @@ def idle():
             hit_event = True
             explosions.append(Explosion(cn.x, 2.0, cn.z, max_r=18.0, is_blue=True))
 
-        if not hit_event:
+        if not hit_event and not evil_larry_shield_broken:
             for sl in small_larrys:
                 if not sl.alive or sl.charmed:
                     continue
@@ -1928,12 +2417,19 @@ def display():
     if not first_person:
         render_list.append((player_pos[0], player_pos[1] + 16.0, player_pos[2], lambda: draw_tung_tung_sahur(cam_x, cam_z)))
 
-    # Small Larry Minions
+    # Small Larry Minions (Pre-shield break)
     for sl in small_larrys:
         if sl.alive:
             def _draw_sl(sl=sl):
                 draw_single_small_larry(sl)
             render_list.append((sl.x, sl.y + 10.0, sl.z, _draw_sl))
+
+    # Zombie Minions (Post-shield break)
+    for z in zombies:
+        if z.alive:
+            def _draw_z(z=z):
+                draw_single_zombie(z)
+            render_list.append((z.x, z.y + 10.0, z.z, _draw_z))
 
     # Bombs
     for b in bombs:
@@ -2190,8 +2686,12 @@ def mouse_motion(x, y):
     dx = x - last_mouse_x
     dy = y - last_mouse_y
     sensitivity = 0.20
-    camera_yaw = (camera_yaw - dx * sensitivity) % 360.0
-    player_pitch = max(-25.0, min(75.0, player_pitch + dy * sensitivity))
+    if first_person:
+        camera_yaw = (camera_yaw - dx * sensitivity) % 360.0
+        player_pitch = max(-65.0, min(65.0, player_pitch - dy * sensitivity))
+    else:
+        camera_yaw = (camera_yaw - dx * sensitivity) % 360.0
+        player_pitch = max(-25.0, min(75.0, player_pitch + dy * sensitivity))
     last_mouse_x = x
     last_mouse_y = y
 
@@ -2228,8 +2728,12 @@ def reset_level_3():
     small_pillars_destroyed  = False
     meow_timer               = 0
 
+    global zombies_spawned_count
+    zombies_spawned_count = 0
     small_larrys_spawned_count = 0
     small_larrys.clear()
+    zombies.clear()
+    zombie_spawn_cooldown = 0
     bombs.clear()
     catnips.clear()
     explosions.clear()
@@ -2264,7 +2768,7 @@ def main():
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
     glutInitWindowSize(WIN_W, WIN_H)
     glutInitWindowPosition(60, 40)
-    glutCreateWindow(b"9 Lives - Level 3: Boss Fight (Evil Larry)")
+    glutCreateWindow(b"9 Lives")
 
     glutDisplayFunc(display)
     glutIdleFunc(idle)

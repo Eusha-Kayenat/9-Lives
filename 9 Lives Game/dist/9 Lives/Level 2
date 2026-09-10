@@ -52,6 +52,7 @@ Controls:
 import math
 import random
 import sys
+import time
 import ctypes
 from OpenGL.GL import *
 from OpenGL.GLUT import *
@@ -62,7 +63,7 @@ from OpenGL.GLU import *
 # -----------------------------------------------------------------------------
 WIN_W = 1000
 WIN_H = 750
-WINDOW_TITLE = b"9 Lives - Level 2 Arena: Combat & Tactical Cover"
+WINDOW_TITLE = b"9 Lives"
 
 ARENA_SIZE = 60.0  # Half-width of arena (bounds: -60 to +60 in X and Z)
 WALL_HEIGHT = 9.0  # Height of perimeter walls
@@ -422,6 +423,8 @@ def draw_bar_2d(x, y, w, h, fill_pct, fill_color, border_color=(1.0, 1.0, 1.0)):
     glMatrixMode(GL_MODELVIEW)
 
 def draw_crosshair():
+    if not first_person:
+        return
     cx, cy = WIN_W // 2, WIN_H // 2
     size = 10
     glMatrixMode(GL_PROJECTION)
@@ -448,29 +451,38 @@ def draw_crosshair():
     glMatrixMode(GL_MODELVIEW)
 
 def draw_hud():
-    # 1. Main Character Health Bar at BOTTOM LEFT corner (Level 3 Style)
+    # 1. Controls text at BOTTOM LEFT corner (matching all levels)
+    draw_text(15, 20, "WASD: Move | Mouse: Orbit Camera | Space: Jump | Ctrl/X: Crouch | V/RMB: 1st/3rd Person | P: Pause | C: God Mode | R: Reset", font=GLUT_BITMAP_HELVETICA_12)
+
+    # 2. Main Character Health Bar at BOTTOM LEFT corner (above controls)
     pw, ph = 220, 16
-    px, py = 25, 25
+    px, py = 25, 45
     player_pct = player_hits_left / float(MAX_PLAYER_HITS)
     draw_bar_2d(px, py, pw, ph, player_pct, (0.1, 0.9, 0.2), border_color=(0.9, 0.9, 0.9))
     draw_text(px + pw + 12, py + 1, f"LIVES: {player_hits_left}/{MAX_PLAYER_HITS}", color=(0.1, 0.9, 0.2), font=GLUT_BITMAP_HELVETICA_18)
 
-    # 2. Cheat Mode text at TOP RIGHT corner (Level 3 Style)
+    # 3. Cheat Mode text at TOP RIGHT corner (Level 3 Style)
     if cheat_mode:
         draw_text_bold(WIN_W - 220, WIN_H - 35, 'CHEAT MODE ON', color=(1.0, 0.85, 0.2), font=GLUT_BITMAP_HELVETICA_18)
 
 
-    # 3. (HUD text removed per user request)
-
-
     # Catnip Spawn Objective Banner
     if catnip_spawned and not catnip_picked_up:
-        draw_text_bold(WIN_W // 2 - 250, WIN_H // 2 + 50, "* ALL ZOMBIES CLEARED! PICK UP GLOWING BLUE CATNIP AT THE CENTER! *", color=(0.0, 0.85, 1.0))
+        banner = "* ALL ZOMBIES CLEARED! PICK UP GLOWING BLUE CATNIP AT THE CENTER! *"
+        bw = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in banner)
+        bx = (WIN_W - bw) // 2
+        # Draw high-visibility bold banner with drop shadow
+        draw_text(bx + 1, WIN_H // 2 + 49, banner, color=(0.0, 0.0, 0.0), font=GLUT_BITMAP_HELVETICA_18)
+        draw_text_bold(bx, WIN_H // 2 + 50, banner, color=(0.0, 0.9, 1.0), font=GLUT_BITMAP_HELVETICA_18)
 
     # Pause Overlay
     if is_paused:
-        draw_text_bold(WIN_W // 2 - 120, WIN_H // 2 + 10, "=== GAME PAUSED ===", color=(1.0, 0.9, 0.1))
-        draw_text(WIN_W // 2 - 100, WIN_H // 2 - 20, "Press 'P' to Resume Game", color=(1.0, 1.0, 1.0))
+        p1 = "=== GAME PAUSED ==="
+        p2 = "Press 'P' to Resume Game"
+        w1 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in p1)
+        w2 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in p2)
+        draw_text_bold((WIN_W - w1) // 2, WIN_H // 2 + 10, p1, color=(1.0, 0.9, 0.1))
+        draw_text((WIN_W - w2) // 2, WIN_H // 2 - 20, p2, color=(1.0, 1.0, 1.0))
 
     # Level Victory - exit door hint, fully centered
     if catnip_picked_up:
@@ -485,8 +497,12 @@ def draw_hud():
 
     # Game Over Overlay
     if is_game_over:
-        draw_text_bold(WIN_W // 2 - 130, WIN_H // 2 + 20, "=== MISSION FAILED! ===", color=(1.0, 0.1, 0.1))
-        draw_text(WIN_W // 2 - 90, WIN_H // 2 - 15, "Press 'R' to Restart Arena", color=(1.0, 1.0, 1.0))
+        g1 = "=== MISSION FAILED! ==="
+        g2 = "Press 'R' to Restart Arena"
+        w1 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in g1)
+        w2 = sum(glutBitmapWidth(GLUT_BITMAP_HELVETICA_18, ord(c)) for c in g2)
+        draw_text_bold((WIN_W - w1) // 2, WIN_H // 2 + 20, g1, color=(1.0, 0.1, 0.1))
+        draw_text((WIN_W - w2) // 2, WIN_H // 2 - 15, g2, color=(1.0, 1.0, 1.0))
 
 # -----------------------------------------------------------------------------
 # Crate Decorations (Solid Wooden Obstacles)
@@ -1003,7 +1019,7 @@ def draw_character(cam_x=0.0, cam_z=0.0):
 # -----------------------------------------------------------------------------
 # Exact 3D Zombie Model Design (Turns Orange on hit)
 # -----------------------------------------------------------------------------
-def draw_zombie_mesh(is_orange=False, is_front=True):
+def draw_zombie_mesh(is_orange=False, is_front=True, walk_anim=0.0):
     glPushMatrix()
 
     if is_orange:
@@ -1072,63 +1088,90 @@ def draw_zombie_mesh(is_orange=False, is_front=True):
     glutSolidCube(100)
     glPopMatrix()
 
-    # Arms
+    # Walking animation angles
+    leg_swing = math.sin(walk_anim) * 26.0
+    arm_swing = math.sin(walk_anim) * 16.0
+
+    # 3. Arms (reaching forward with subtle menacing zombie swing)
+    # Left Arm
+    glPushMatrix()
+    glTranslatef(-39.8, 0, 92)
+    glRotatef(arm_swing, 1, 0, 0)
+    # Forearm & Hand
     glPushMatrix()
     glColor3f(*c_skin)
-    glTranslatef(-39.8, 28, 92)
+    glTranslatef(0, 28, 0)
     glScalef(0.2, 0.45, 0.24)
     glutSolidCube(100)
     glPopMatrix()
-
+    # Sleeve
     glPushMatrix()
     glColor3f(*c_shirt)
-    glTranslatef(-39.8, 5, 92)
+    glTranslatef(0, 5, 0)
     glScalef(0.21, 0.4, 0.25)
     glutSolidCube(100)
     glPopMatrix()
+    glPopMatrix()
 
+    # Right Arm
+    glPushMatrix()
+    glTranslatef(39.8, 0, 92)
+    glRotatef(-arm_swing, 1, 0, 0)
+    # Forearm & Hand
     glPushMatrix()
     glColor3f(*c_skin)
-    glTranslatef(39.8, 28, 92)
+    glTranslatef(0, 28, 0)
     glScalef(0.2, 0.45, 0.24)
     glutSolidCube(100)
     glPopMatrix()
-
+    # Sleeve
     glPushMatrix()
     glColor3f(*c_shirt)
-    glTranslatef(39.8, 5, 92)
+    glTranslatef(0, 5, 0)
     glScalef(0.21, 0.4, 0.25)
     glutSolidCube(100)
     glPopMatrix()
+    glPopMatrix()
 
-    # Legs & Feet
+    # 4. Legs & 5. Feet
+    # Left Leg & Foot
+    glPushMatrix()
+    glTranslatef(-16, 0, 55)
+    glRotatef(leg_swing, 1, 0, 0)
+    glTranslatef(0, 0, -25)
+    # Pants
     glPushMatrix()
     glColor3f(*c_pants)
-    glTranslatef(-16, 0, 30)
     glScalef(0.26, 0.26, 0.4)
     glutSolidCube(100)
     glPopMatrix()
+    # Shoe
+    glPushMatrix()
+    glColor3f(*c_shoes)
+    glTranslatef(0, 2, -25)
+    glScalef(0.26, 0.3, 0.1)
+    glutSolidCube(100)
+    glPopMatrix()
+    glPopMatrix()
 
+    # Right Leg & Foot
+    glPushMatrix()
+    glTranslatef(16, 0, 55)
+    glRotatef(-leg_swing, 1, 0, 0)
+    glTranslatef(0, 0, -25)
+    # Pants
     glPushMatrix()
     glColor3f(*c_pants)
-    glTranslatef(16, 0, 30)
     glScalef(0.26, 0.26, 0.4)
     glutSolidCube(100)
     glPopMatrix()
-
-    # Feet
+    # Shoe
     glPushMatrix()
     glColor3f(*c_shoes)
-    glTranslatef(-16, 2, 5)
+    glTranslatef(0, 2, -25)
     glScalef(0.26, 0.3, 0.1)
     glutSolidCube(100)
     glPopMatrix()
-
-    glPushMatrix()
-    glColor3f(*c_shoes)
-    glTranslatef(16, 2, 5)
-    glScalef(0.26, 0.3, 0.1)
-    glutSolidCube(100)
     glPopMatrix()
 
     glPopMatrix()
@@ -1139,15 +1182,15 @@ class Zombie:
         self.is_hit_orange = False
         self.speed = zombie_base_speed + random.uniform(-0.003, 0.003)
         self.yaw = 0.0
-        self.walk_anim = random.uniform(0, 10)
+        self.walk_anim = random.uniform(0.0, 6.28)
 
-    def update(self):
-        self.walk_anim += 0.04
+    def update(self, dt=1.0/60.0):
         dx = player_pos[0] - self.pos[0]
         dz = player_pos[2] - self.pos[2]
         dist = math.sqrt(dx * dx + dz * dz)
 
         if dist > 1.2:
+            self.walk_anim += dt * 3.2
             step_x = (dx / dist) * self.speed
             step_z = (dz / dist) * self.speed
 
@@ -1187,7 +1230,7 @@ class Zombie:
         to_cam_z = cam_z - self.pos[2]
         is_front = (fwd_x * to_cam_x + fwd_z * to_cam_z) > 0.0
 
-        draw_zombie_mesh(is_orange=self.is_hit_orange, is_front=is_front)
+        draw_zombie_mesh(is_orange=self.is_hit_orange, is_front=is_front, walk_anim=self.walk_anim)
         glPopMatrix()
 
 def spawn_zombie():
@@ -1226,11 +1269,11 @@ def check_target_lock():
     """
     global is_target_locked
 
-    if (not gun_picked_up and not catnip_picked_up) or is_paused or is_game_over or is_level_cleared:
+    if (not gun_picked_up and not catnip_picked_up) or is_paused or is_game_over:
         is_target_locked = False
         return
 
-    rad_yaw = math.radians(player_yaw)
+    rad_yaw = math.radians(camera_yaw if first_person else player_yaw)
     rad_pitch = math.radians(player_pitch)
 
     dir_x = math.sin(rad_yaw) * math.cos(rad_pitch)
@@ -1269,13 +1312,15 @@ def launch_projectile():
         return
     if active_weapon == "catnip" and not catnip_picked_up:
         return
-    if fire_cooldown > 0 or is_paused or is_game_over or is_level_cleared:
+    if fire_cooldown > 0 or is_paused or is_game_over:
         return
 
     fire_cooldown = 18
 
-    rad_yaw = math.radians(player_yaw)
-    rad_pitch = math.radians(player_pitch)
+    rad_yaw = math.radians(camera_yaw if first_person else player_yaw)
+    pitch_val = player_pitch if first_person else -player_pitch
+    clamped_pitch = max(-15.0, min(50.0, pitch_val))
+    rad_pitch = math.radians(clamped_pitch)
 
     vx = math.sin(rad_yaw) * math.cos(rad_pitch) * GRENADE_SPEED
     vy = math.sin(rad_pitch) * GRENADE_SPEED + 0.08
@@ -1543,15 +1588,25 @@ def display():
 # -----------------------------------------------------------------------------
 # Physics & Game Logic Update Loop
 # -----------------------------------------------------------------------------
+_last_idle_time = None
+
 def idle():
     global player_pos, is_jumping, y_velocity, gun_rotation_angle, catnip_rotation_angle, door_glow_angle
     global gun_picked_up, catnip_picked_up, fire_cooldown, zombie_spawn_timer
     global player_hits_left, player_invulnerable_timer, is_game_over
     global player_yaw, camera_yaw, player_pitch, last_mouse_x, last_mouse_y, mouse_initialized
+    global _last_idle_time
 
     if is_paused or is_game_over:
         glutPostRedisplay()
         return
+
+    now = time.time()
+    if _last_idle_time is None:
+        dt = 1.0 / 60.0
+    else:
+        dt = min(0.05, max(0.001, now - _last_idle_time))
+    _last_idle_time = now
 
     # Update leg swing idle timer
     global _idle_ticks_since_move, is_walking
@@ -1586,8 +1641,13 @@ def idle():
                 dy = _pt.y - win_cy
                 if dx != 0 or dy != 0:
                     mouse_sensitivity = 0.20
-                    camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
-                    player_pitch = max(-25.0, min(75.0, player_pitch + dy * mouse_sensitivity))
+                    if first_person:
+                        camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
+                        player_yaw = camera_yaw
+                        player_pitch = max(-65.0, min(65.0, player_pitch - dy * mouse_sensitivity))
+                    else:
+                        camera_yaw = (camera_yaw - dx * mouse_sensitivity) % 360.0
+                        player_pitch = max(-25.0, min(75.0, player_pitch + dy * mouse_sensitivity))
                     ctypes.windll.user32.SetCursorPos(win_cx, win_cy)
             else:
                 if is_cursor_hidden:
@@ -1654,7 +1714,7 @@ def idle():
         player_invulnerable_timer -= 1
 
     for z in zombies:
-        z.update()
+        z.update(dt)
         dist_to_player = math.sqrt((z.pos[0] - player_pos[0])**2 + (z.pos[2] - player_pos[2])**2)
         if dist_to_player < 2.2 and player_invulnerable_timer <= 0:
             if not cheat_mode:
@@ -1675,7 +1735,7 @@ def idle():
 def mouse_listener(button, state, x, y):
     global first_person
 
-    if is_paused or is_game_over or is_level_cleared:
+    if is_paused or is_game_over:
         return
 
     try:
@@ -1698,8 +1758,13 @@ def mouse_motion(x, y):
     dx = x - last_mouse_x
     dy = y - last_mouse_y
     sensitivity = 0.20
-    camera_yaw = (camera_yaw - dx * sensitivity) % 360.0
-    player_pitch = max(-25.0, min(75.0, player_pitch + dy * sensitivity))
+    if first_person:
+        camera_yaw = (camera_yaw - dx * sensitivity) % 360.0
+        player_yaw = camera_yaw
+        player_pitch = max(-65.0, min(65.0, player_pitch - dy * sensitivity))
+    else:
+        camera_yaw = (camera_yaw - dx * sensitivity) % 360.0
+        player_pitch = max(-25.0, min(75.0, player_pitch + dy * sensitivity))
     last_mouse_x = x
     last_mouse_y = y
 

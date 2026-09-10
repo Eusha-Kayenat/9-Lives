@@ -1,5 +1,5 @@
 @echo off
-title 9 Lives: Evil Cat World
+title 9 Lives
 cd /d "%~dp0"
 if exist "9 Lives Game\9 Lives.py" (
     cd /d "%~dp0\9 Lives Game"
